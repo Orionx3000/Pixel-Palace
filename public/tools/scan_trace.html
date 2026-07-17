@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Scan → Trace</title>
+<script src="../vendor/imagetracer.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#0b0f17;color:#dfe7f0}
+  .wrap{width:100%;max-width:100%;margin:0;padding:14px}
+  h1{font-size:18px;margin:0 0 4px;color:#7dd3fc}
+  .hint{font-size:12px;color:#8aa0b8;margin-bottom:10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .btn{background:#13203a;color:#cfe3ff;border:1px solid #26456f;border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:#1b2c4d}
+  .btn.on{background:#0e639c;border-color:#3aa0ff;color:#fff}
+  .btn.snd{border-color:#2e7d5b}
+  .seg{display:flex;gap:4px;background:#0e1626;border:1px solid #22324a;border-radius:8px;padding:4px}
+  .seg .btn{background:transparent;border:none}
+  .seg .btn.on{background:#13405f}
+  label.ctl{font-size:12px;color:#9fb6cf;display:flex;flex-direction:column;gap:3px;min-width:170px}
+  input[type=range]{width:100%}
+  .stage{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .box{flex:1;min-width:280px;background:#0e1626;border:1px solid #22324a;border-radius:10px;padding:8px}
+  .box h3{margin:0 0 6px;font-size:12px;color:#7dd3fc;font-weight:600}
+  canvas{max-width:100%;background:#fff;background-image:linear-gradient(45deg,#ddd 25%,transparent 25%),linear-gradient(-45deg,#ddd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ddd 75%),linear-gradient(-45deg,transparent 75%,#ddd 75%);background-size:16px 16px;background-position:0 0,8px 8px,8px 8px,0 0;border-radius:6px}
+  .mono{font-family:ui-monospace,monospace;font-size:11px;color:#7fd1ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Scan → Trace</h1>
+  <div class="hint">Turn a scanned page or photo into clean line art (thresholded) for the hand-drawn pipeline. Then send it to <b>Markup</b> (to paint semantic layers) or <b>Editor</b>/<b>Animator</b> (to color). Self-contained — no network needed.</div>
+
+  <div class="row">
+    <label class="btn">Load Scan<input id="file" type="file" accept="image/*" style="display:none"/></label>
+    <div class="seg">
+      <button class="btn on" data-mode="dark">Lines dark (paper light)</button>
+      <button class="btn" data-mode="light">Lines light (paper dark)</button>
+    </div>
+    <label class="ctl">Threshold <span class="mono" id="thVal">128</span>
+      <input id="th" type="range" min="0" max="255" value="128"/>
+    </label>
+    <label class="ctl">Smooth (blur px) <span class="mono" id="blVal">0</span>
+      <input id="bl" type="range" min="0" max="4" value="0"/>
+    </label>
+    <button class="btn" id="invert">Invert</button>
+  </div>
+  <div class="row">
+    <button class="btn snd" id="sendMarkup">▸ Send to Markup</button>
+    <button class="btn snd" id="sendEditor">▸ Send to Editor</button>
+    <button class="btn snd" id="sendAnimator">▸ Send to Animator</button>
+    <button class="btn" id="download">↓ Download PNG</button>
+    <button class="btn" id="vectorize">◆ Vectorize → SVG</button>
+    <label class="ctl">Detail <span class="mono" id="detVal">0.5</span>
+      <input id="det" type="range" min="0.1" max="2" step="0.1" value="0.5"/>
+    </label>
+  </div>
+
+  <div class="stage">
+    <div class="box"><h3>Source</h3><canvas id="src"></canvas></div>
+    <div class="box"><h3>Traced line art (transparent bg)</h3><canvas id="out"></canvas></div>
+  </div>
+  <div class="box" style="margin-top:10px">
+    <h3>Vectorized SVG (scalable — for the hand-drawn engine)</h3>
+    <div id="svgout" class="mono" style="max-height:260px;overflow:auto;background:#0a0f1a;border:1px solid #22324a;border-radius:8px;padding:8px;min-height:60px;color:#9fd6ff">Load a scan and click Vectorize.</div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="dlSvg">↓ Download SVG</button>
+      <button class="btn snd" id="sendEditorSvg">▸ Send SVG to Editor</button>
+    </div>
+  </div>
+  <div class="hint" id="status">Load a scan to begin.</div>
+</div>
+
+<script>
+let mode='dark', inverted=false;
+const $ = id => document.getElementById(id);
+const src=$('src'), out=$('out'), sctx=src.getContext('2d'), octx=out.getContext('2d');
+let img=null;
+
+function setMode(m){ mode=m; document.querySelectorAll('.seg .btn').forEach(b=>b.classList.toggle('on', b.dataset.mode===m)); process(); }
+document.querySelectorAll('.seg .btn').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$('invert').onclick=()=>{ inverted=!inverted; process(); };
+$('th').oninput=()=>{ $('thVal').textContent=$('th').value; process(); };
+$('bl').oninput=()=>{ $('blVal').textContent=$('bl').value; process(); };
+
+$('file').onchange=e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ const im=new Image(); im.onload=()=>{ img=im; src.width=out.width=im.width; src.height=out.height=im.height; sctx.drawImage(im,0,0); process(); }; im.src=ev.target.result; }; r.readAsDataURL(f); };
+
+function process(){
+  if(!img){ return; }
+  const W=img.width,H=img.height; out.width=W; out.height=H;
+  // optional blur via temp canvas
+  const blur=+$('bl').value;
+  let data;
+  if(blur>0){ const t=document.createElement('canvas'); t.width=W;t.height=H; const tc=t.getContext('2d'); tc.filter='blur('+blur+'px)'; tc.drawImage(sctx,0,0); data=tc.getImageData(0,0,W,H); }
+  else data=sctx.getImageData(0,0,W,H);
+  const thr=+$('th').value;
+  const o=octx.createImageData(W,H);
+  for(let i=0;i<data.data.length;i+=4){
+    const r=data.data[i],g=data.data[i+1],b=data.data[i+2];
+    const lum=(r*0.299+g*0.587+b*0.114);
+    // mode dark: dark pixels = line (opaque black), light = transparent
+    let isLine = mode==='dark' ? (lum<=thr) : (lum>=thr);
+    if(inverted) isLine=!isLine;
+    if(isLine){ o.data[i]=0;o.data[i+1]=0;o.data[i+2]=0;o.data[i+3]=255; }
+    else { o.data[i]=0;o.data[i+1]=0;o.data[i+2]=0;o.data[i+3]=0; }
+  }
+  octx.putImageData(o,0,0);
+  $('status').textContent='Traced '+W+'×'+H+', threshold='+thr+', mode='+mode+(inverted?' (inverted)':'');
+}
+
+function dataURL(){ return out.toDataURL('image/png'); }
+$('download').onclick=()=>{ const a=document.createElement('a'); a.href=dataURL(); a.download='traced_lineart.png'; a.click(); };
+$('sendMarkup').onclick=()=>{ const d=dataURL(); parent.postMessage({type:'INBOX',target:'markup',payload:d},'*'); flash('Sent to Markup'); };
+$('sendEditor').onclick=()=>{ const d=dataURL(); parent.postMessage({type:'LOAD_CANVAS',data:{editor:d}},'*'); flash('Sent to Editor'); };
+$('sendAnimator').onclick=()=>{ const d=dataURL(); parent.postMessage({type:'LOAD_CANVAS',data:{animator:d}},'*'); flash('Sent to Animator'); };
+$('det').oninput=()=>{ $('detVal').textContent=$('det').value; };
+$('vectorize').onclick=()=>{
+  if(typeof ImageTracer==='undefined'){ $('svgout').textContent='Vectorizer library not loaded.'; return; }
+  if(!img){ $('svgout').textContent='Load a scan first.'; return; }
+  $('svgout').textContent='Tracing…';
+  try {
+    const svg = ImageTracer.imagedataToSVG(out.getContext('2d').getImageData(0,0,out.width,out.height), {qtres:parseFloat($('det').value), scale:1});
+    window.__lastSVG = svg;
+    $('svgout').textContent = svg.length>4000 ? svg.slice(0,4000)+' …' : svg;
+    flash('Vectorized '+out.width+'×'+out.height);
+  } catch(e){ $('svgout').textContent='Vectorize error: '+e.message; }
+};
+$('dlSvg').onclick=()=>{ if(!window.__lastSVG)return; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([window.__lastSVG],{type:'image/svg+xml'})); a.download='traced.svg'; a.click(); };
+$('sendEditorSvg').onclick=()=>{ if(!window.__lastSVG)return; parent.postMessage({type:'LOAD_SVG',data:window.__lastSVG},'*'); flash('SVG sent to Editor'); };
+function flash(m){ $('status').textContent=m; setTimeout(()=>$('status').textContent='Ready.',1500); }
+// receive load requests from host
+window.addEventListener('message',e=>{ const m=e.data; if(m&&m.type==='EXPORT_CANVAS'){ /* not used here */ } });
+</script>
+</body>
+</html>
+

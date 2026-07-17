@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Map Generator — Pixel Palace</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#0b0f17;color:#dfe7f0;overflow:auto}
+  .wrap{width:100%;max-width:100%;margin:0;padding:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+  h1{font-size:18px;margin:0 0 4px;color:#7dd3fc}
+  .hint{font-size:12px;color:#8aa0b8;margin-bottom:10px}
+  .panel{background:#0e1626;border:1px solid #22324a;border-radius:12px;padding:12px;min-width:300px;flex:1}
+  .ctrl{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+  .ctrl label{font-size:12px;color:#9fb6cf}
+  select,input[type=text],input[type=number]{background:#070b15;border:1px solid #2a3f5c;border-radius:8px;color:#dfe7f0;padding:7px 9px;font-family:inherit;font-size:13px;width:100%}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .btn{background:#13203a;color:#cfe3ff;border:1px solid #26456f;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:#1b2c4d}
+  .btn.on{background:#0e639c;border-color:#3aa0ff;color:#fff}
+  .btn.snd{border-color:#2e7d5b}
+  .seg{display:flex;gap:4px;background:#0a1120;border:1px solid #22324a;border-radius:8px;padding:4px;flex-wrap:wrap}
+  .seg .btn{background:transparent;border:none;padding:5px 8px;font-size:11px}
+  .seg .btn.on{background:#13405f}
+  canvas{background:#111;image-rendering:pixelated;border-radius:8px;max-width:100%;border:1px solid #22324a}
+  .box{background:#0e1626;border:1px solid #22324a;border-radius:12px;padding:10px;margin-top:10px}
+  .box h3{margin:0 0 6px;font-size:12px;color:#7dd3fc;font-weight:600}
+  .mono{font-family:ui-monospace,monospace;font-size:11px;color:#7fd1ff}
+  .collap{border:1px solid #22324a;border-radius:8px;margin-top:8px;overflow:hidden}
+  .collap > .ch{background:#0a1120;padding:7px 10px;cursor:pointer;font-size:12px;color:#9fd6ff;display:flex;justify-content:space-between}
+  .collap > .cb{padding:10px;display:none}
+  .collap.open > .cb{display:block}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel" style="max-width:380px">
+    <h1>Map Generator</h1>
+    <div class="hint">Procedural tilemaps (top-down + platformer). Autotiling, biomes, props, entity placement. Export TMX / Godot / Solarus. Tiles: procedural OR bundled CC0-style packs.</div>
+
+    <div class="twocol">
+      <div class="ctrl"><label>Mode</label>
+        <div class="seg" id="modeSeg">
+          <button class="btn on" data-mode="topdown">Top-down</button>
+          <button class="btn" data-mode="platformer">Platformer</button>
+        </div>
+      </div>
+      <div class="ctrl"><label>Tiles</label>
+        <div class="seg" id="srcSeg">
+          <button class="btn on" data-src="procedural">Procedural</button>
+          <button class="btn" data-src="packs">CC0 packs</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctrl"><label>Palette preset</label>
+      <select id="palPreset">
+        <option value="stardew">Stardew</option>
+        <option value="forest">Forest</option>
+        <option value="hero">Hero</option>
+        <option value="starbound">Starbound</option>
+        <option value="endesga">Endesga 16</option>
+        <option value="pico8">PICO-8</option>
+        <option value="gameboy">Game Boy</option>
+        <option value="poison">Poison</option>
+      </select>
+    </div>
+
+    <div class="twocol">
+      <div class="ctrl"><label>Width (tiles)</label>
+        <input type="number" id="cols" value="32"/>
+      </div>
+      <div class="ctrl"><label>Height (tiles)</label>
+        <input type="number" id="rows" value="24"/>
+      </div>
+    </div>
+    <div class="ctrl"><label>Tile size (px)</label>
+      <div class="seg" id="tsSeg">
+        <button class="btn" data-ts="16">16</button>
+        <button class="btn on" data-ts="24">24</button>
+        <button class="btn" data-ts="32">32</button>
+      </div>
+    </div>
+
+    <div class="ctrl"><label>Seed <span class="mono" id="seedVal"></span></label>
+      <div class="row" style="margin:0"><input type="number" id="seed" value="777" style="flex:1"/><button class="btn" id="rnd">&#127922;</button></div>
+    </div>
+
+    <div class="ctrl"><label>Roughness <span class="mono" id="roughVal">0.5</span></label>
+      <input type="range" id="rough" min="0" max="1" step="0.05" value="0.5"/>
+    </div>
+    <div class="ctrl"><label>Water level <span class="mono" id="waterVal">0.35</span></label>
+      <input type="range" id="water" min="0" max="0.8" step="0.05" value="0.35"/>
+    </div>
+
+    <div class="ctrl"><label>Place characters (Pixscii sprites)</label>
+      <input type="number" id="ents" value="3" min="0" max="40"/>
+      <span class="mono" style="font-size:10px">needs a generated character sprite — send one from Pixscii first, or auto-gen</span>
+    </div>
+
+    <div class="row">
+      <button class="btn on" id="gen">&#9881; Generate</button>
+      <button class="btn" id="regen">&#8635; Re-roll</button>
+      <button class="btn warn" id="genAITile" title="Generate a seamless tile with the local AI sidecar">&#10024; AI Tile</button>
+    </div>
+    <div class="row">
+      <button class="btn snd" id="sendEditor">&#9656; Editor</button>
+      <button class="btn snd" id="sendStudio">&#9656; Studio</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="dlPng">&#8595; Map PNG</button>
+      <button class="btn" id="dlTmx">&#8595; Tiled (TMX)</button>
+      <button class="btn" id="dlGodot">&#8595; Godot</button>
+      <button class="btn" id="dlSolarus">&#8595; Solarus</button>
+    </div>
+    <div class="hint mono" id="status">Ready.</div>
+  </div>
+
+  <div class="panel" style="flex:2;min-width:320px">
+    <div class="box"><h3>Map preview</h3>
+      <canvas id="map" width="768" height="576" style="width:100%;height:auto;background:#0a0f1a"></canvas>
+      <div class="mono" id="mapInfo" style="margin-top:6px"></div>
+    </div>
+    <div class="box"><h3>Tile legend</h3><div id="legend" class="row"></div></div>
+  </div>
+</div>
+
+<script>
+function makeRng(seed){ let a=seed>>>0; return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function hex2rgb(h){ return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+function rgb2hex(r,g,b){ return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function rgb2hsv(r,g,b){ r/=255;g/=255;b/=255; const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn; let h=0; if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; } h/=6; if(h<0)h+=1; return [h,mx?d/mx:0,mx]; }
+function hsv2rgb(h,s,v){ const i=Math.floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s); let r,g,b; if(i%6===0){r=v;g=t;b=p}else if(i%6===1){r=q;g=v;b=p}else if(i%6===2){r=p;g=v;b=t}else if(i%6===3){r=p;g=q;b=v}else if(i%6===4){r=t;g=p;b=v}else{r=v;g=p;b=q} return [r*255,g*255,b*255]; }
+function rampFrom(base,steps){ const [r,g,b]=hex2rgb(base); const [h,s,v]=rgb2hsv(r,g,b); const out=[]; const lo=-0.30,hi=0.28; for(let i=0;i<steps;i++){ const t=steps===1?0:(i/(steps-1))*2-1; const dl=t<0?lo*(1+t):hi*t; out.push(rgb2hex(...hsv2rgb(h,Math.max(0,Math.min(1,s+(t>0?0.06*t:0))),Math.max(0,Math.min(1,v+dl))))); } return out; }
+
+const PRESETS = {
+  stardew:['#211c34','#4a3b5c','#7c5c9c','#c49adf','#e8b06a','#f2e2c4','#6ab04c','#3b7a2a','#2f6fb0','#9bd7ff','#d9443b','#5a3a1a'],
+  forest:['#1c2e16','#3c6b2e','#6fc24a','#bff08a','#0f1f0c','#2e8b57','#4a8b3a','#3b6fb0','#9bd7ff','#7a5a2a','#5a3a1a','#e0f0a0'],
+  hero:['#1a1a2e','#2b2b3a','#4a4a6a','#7a8cff','#ffd27a','#e8e8f0','#c0392b','#3ad99a','#2f6fb0','#9bd7ff','#5a3a1a','#d9443b'],
+  starbound:['#1d1d28','#3b3b52','#5c6c8a','#8fb3ff','#ffd57a','#eef2f7','#d9443b','#4fd68a','#2f6fb0','#9bd7ff','#5a3a1a','#c2a06a'],
+  endesga:['#191028','#3b2638','#733e39','#a22633','#e43b44','#f77622','#feae34','#fee761','#63c74d','#3e8948','#265c42','#193c3e'],
+  pico8:['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#ff004d','#ffa300','#ffec27','#00e436','#29adff'],
+  gameboy:['#0f380f','#306230','#8bac0f','#9bbc0f','#0b1a0b','#1e3a1e','#5a7a2a','#cfe09a'],
+  poison:['#2a0d3a','#6a1a8a','#c44aff','#f0c0ff','#1a062a','#e07aff','#3b7a2a','#9bd7ff','#5a3a1a','#d9443b','#c2a06a','#e0f0a0'],
+};
+
+let S={ mode:'topdown', src:'procedural', preset:'stardew', cols:32, rows:24, ts:24, seed:777, rough:0.5, water:0.35, ents:3, pal:PRESETS.stardew.slice() };
+const $=id=>document.getElementById(id);
+const map=$('map'), mctx=map.getContext('2d');
+let lastMap=null, lastData=null, lastPng=null;
+
+// tile type ids
+const T={ WATER:0, SAND:1, GRASS:2, FOREST:3, ROCK:4, PATH:5, DEEPWATER:6, SNOW:7, LAVA:8, WALL:9, PLATFORM:10, EMPTY:11, DOOR:12 };
+const NAMES={0:'Water',1:'Sand',2:'Grass',3:'Forest',4:'Rock',5:'Path',6:'Deep water',7:'Snow',8:'Lava',9:'Wall',10:'Platform',11:'Empty',12:'Door'};
+
+// ---- procedural tile cache: build small tile images per type from palette ----
+let TILES={}; // id -> offscreen canvas (ts x ts)
+function buildTiles(){
+  const ts=S.ts, P=S.pal, steps=3;
+  const ramp=c=>rampFrom(c,steps);
+  const mk=(draw)=>{ const c=document.createElement('canvas'); c.width=ts; c.height=ts; const x=c.getContext('2d'); draw(x,ramp); return c; };
+  const noise=(x,base,amt)=>{ for(let i=0;i<ts*ts*amt;i++){ const px=Math.floor(Math.random()*ts),py=Math.floor(Math.random()*ts); x.fillStyle=base[Math.floor(Math.random()*base.length)]; x.fillRect(px,py,1,1);} };
+  TILES={};
+  TILES[T.WATER]=mk((x,r)=>{ x.fillStyle=r(P[9])[1]; x.fillRect(0,0,ts,ts); noise(x,[r(P[9])[0],r(P[9])[1],r(P[9])[2]],0.10); });
+  TILES[T.DEEPWATER]=mk((x,r)=>{ x.fillStyle=r(P[9])[0]; x.fillRect(0,0,ts,ts); noise(x,[r(P[9])[0],r(P[9])[1]],0.08); });
+  TILES[T.SAND]=mk((x,r)=>{ x.fillStyle=r(P[5])[1]; x.fillRect(0,0,ts,ts); noise(x,[r(P[5])[0],r(P[5])[1],r(P[5])[2]],0.06); });
+  TILES[T.GRASS]=mk((x,r)=>{ x.fillStyle=r(P[6])[2]; x.fillRect(0,0,ts,ts); noise(x,[r(P[6])[1],r(P[6])[2],r(P[6])[3]],0.07); });
+  TILES[T.FOREST]=mk((x,r)=>{ x.fillStyle=r(P[6])[2]; x.fillRect(0,0,ts,ts); noise(x,[r(P[6])[1],r(P[6])[2]],0.05); x.fillStyle=r(P[6])[0]; for(let i=0;i<3;i++){ const tx=Math.floor(Math.random()*ts),ty=Math.floor(Math.random()*ts); x.fillRect(tx-1,ty-3,3,5); x.fillRect(tx-2,ty-1,5,2);} });
+  TILES[T.ROCK]=mk((x,r)=>{ x.fillStyle=r(P[3])[2]; x.fillRect(0,0,ts,ts); noise(x,[r(P[3])[0],r(P[3])[1],r(P[3])[2]],0.08); x.fillStyle=r(P[3])[0]; x.fillRect(0,0,ts,2);});
+  TILES[T.PATH]=mk((x,r)=>{ x.fillStyle=r(P[11])[1]; x.fillRect(0,0,ts,ts); noise(x,[r(P[11])[0],r(P[11])[1],r(P[11])[2]],0.12); });
+  TILES[T.SNOW]=mk((x,r)=>{ x.fillStyle=r(P[5])[3]; x.fillRect(0,0,ts,ts); noise(x,[r(P[5])[2],r(P[5])[3]],0.05); });
+  TILES[T.LAVA]=mk((x,r)=>{ x.fillStyle=r(P[7])[1]; x.fillRect(0,0,ts,ts); noise(x,[r(P[7])[0],r(P[7])[1],r(P[7])[2]],0.10); });
+  TILES[T.WALL]=mk((x,r)=>{ x.fillStyle=r(P[3])[1]; x.fillRect(0,0,ts,ts); x.fillStyle=r(P[3])[0]; x.fillRect(0,0,ts,3); x.fillRect(0,ts-3,ts,3); x.fillRect(0,0,3,ts); x.fillRect(ts-3,0,3,ts); });
+  TILES[T.PLATFORM]=mk((x,r)=>{ x.fillStyle=r(P[10])[1]; x.fillRect(0,0,ts,Math.max(3,ts/4)); x.fillStyle=r(P[10])[0]; x.fillRect(0,Math.max(3,ts/4)-1,ts,1); });
+  TILES[T.EMPTY]=mk((x,r)=>{ x.fillStyle='#0a0f1a'; x.fillRect(0,0,ts,ts); });
+  TILES[T.DOOR]=mk((x,r)=>{ x.fillStyle=r(P[11])[2]; x.fillRect(ts/3,0,ts/3,ts); x.fillStyle=r(P[7])[1]; x.fillRect(ts/3+1,1,ts/3-2,ts-2); });
+}
+
+// ---- value noise (smooth) ----
+function makeNoise(rng,size,scale){
+  const g=Array.from({length:size},()=>Array(size).fill(0));
+  const cells=Math.max(2,Math.floor(size/scale));
+  const rnd=Array.from({length:cells+1},()=>Array.from({length:cells+1},()=>rng()));
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const fx=x/size*cells, fy=y/size*cells; const x0=Math.floor(fx),y0=Math.floor(fy);
+    const tx=fx-x0,ty=fy-y0; const sx=tx*tx*(3-2*tx),sy=ty*ty*(3-2*ty);
+    const a=rnd[y0][x0],b=rnd[y0][x0+1],c=rnd[y0+1][x0],d=rnd[y0+1][x0+1];
+    g[y][x]=(a*(1-sx)+b*sx)*(1-sy)+(c*(1-sx)+d*sx)*sy;
+  }
+  return g;
+}
+
+// ---- generate map grid ----
+function genTopDown(rng){
+  const {cols,rows,rough,water}=S;
+  const elev=makeNoise(rng,Math.max(cols,rows),Math.max(3,Math.floor(6*rough+3)));
+  const moist=makeNoise(rng,Math.max(cols,rows),Math.max(3,Math.floor(6*rough+3)));
+  const g=Array.from({length:rows},()=>Array(cols).fill(T.GRASS));
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    const e=elev[y%elev.length][x%elev.length], m=moist[y%moist.length][x%moist.length];
+    let t;
+    if(e<water-0.08) t=T.DEEPWATER; else if(e<water) t=T.WATER;
+    else if(e<water+0.05) t=T.SAND;
+    else if(e>0.82) t=T.SNOW;
+    else if(m>0.62) t=T.FOREST;
+    else if(m>0.45 && e>water+0.1) t=T.ROCK;
+    else t=T.GRASS;
+    g[y][x]=t;
+  }
+  // carve a path: random walk
+  let cx=Math.floor(rng()*cols), cy=Math.floor(rng()*rows);
+  for(let i=0;i<cols*2;i++){ if(cx<0||cy<0||cx>=cols||cy>=rows)break; if(g[cy][cx]!==T.WATER&&g[cy][cx]!==T.DEEPWATER) g[cy][cx]=T.PATH; cx+=Math.floor((rng()-0.5)*2); cy+=Math.floor((rng()-0.5)*2); cx=Math.max(0,Math.min(cols-1,cx)); cy=Math.max(0,Math.min(rows-1,cy)); }
+  return g;
+}
+function genPlatformer(rng){
+  const {cols,rows,rough,water}=S;
+  const g=Array.from({length:rows},()=>Array(cols).fill(T.EMPTY));
+  // ground height per column via noise-ish walk
+  let h=Math.floor(rows*0.6);
+  for(let x=0;x<cols;x++){
+    h+=Math.floor((rng()-0.5)*4*(rough+0.3)); h=Math.max(Math.floor(rows*0.35),Math.min(rows-3,h));
+    for(let y=h;y<rows;y++) g[y][x]=T.WALL;
+    // occasional platform
+    if(rng()<0.18){ const py=Math.floor(rng()*(h-3))+1; const pw=Math.floor(2+rng()*4); for(let i=0;i<pw&&x+i<cols;i++) g[py][x+i]=T.PLATFORM; }
+    // occasional lava pit (gap with lava at bottom)
+    if(rng()<0.06){ for(let y=h;y<rows;y++) g[y][x]=T.LAVA; }
+  }
+  // door at end
+  g[Math.floor(rows*0.5)][cols-1]=T.DOOR;
+  return g;
+}
+
+// ---- autotiling: blend edges for water/grass transitions ----
+function autotile(g,cols,rows){
+  // simple: leave base tiles; visual transition handled by tile art. For top-down,
+  // convert isolated water-adjacent grass to sand-ish by leaving as is (kept simple).
+  return g;
+}
+
+// ---- entities ----
+let entSprites=[]; // dataURLs from Pixscii, optional
+function placeEntities(g,cols,rows,rng){
+  const ents=[];
+  const isWalkable=t=> S.mode==='topdown' ? (t===T.GRASS||t===T.FOREST||t===T.PATH||t===T.SAND) : (t===T.PLATFORM||t===T.WALL&&false);
+  let tries=0;
+  while(ents.length<S.ents && tries<cols*rows){ tries++; const x=Math.floor(rng()*cols),y=Math.floor(rng()*rows);
+    const t=g[y][x]; const ok= S.mode==='topdown' ? (t===T.GRASS||t===T.FOREST||t===T.PATH) : (t===T.PLATFORM);
+    if(ok) ents.push({x,y,src:entSprites.length?entSprites[ents.length%entSprites.length]:null}); }
+  return ents;
+}
+
+// ---- render ----
+function render(g,ents){
+  const cols=g[0].length, rows=g.length, ts=S.ts;
+  map.width=cols*ts; map.height=rows*ts;
+  mctx.clearRect(0,0,map.width,map.height);
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){ const tile=TILES[g[y][x]]||TILES[T.GRASS]; mctx.drawImage(tile,x*ts,y*ts); }
+  ents.forEach(e=>{ if(e.src){ const im=new Image(); im.onload=()=>mctx.drawImage(im,e.x*ts,e.y*ts-ts,e.y*ts); im.src=e.src; } else { mctx.fillStyle='#ff4d6d'; mctx.fillRect(e.x*ts+ts/3,e.y*ts,e.y*0?0:ts/3,ts/2);} });
+  // fallback marker for entity positions
+  ents.forEach(e=>{ if(!e.src){ mctx.strokeStyle='#ff4d6d'; mctx.strokeRect(e.x*ts+2,e.y*ts+2,ts-4,ts/2);} });
+  lastPng=map.toDataURL('image/png');
+  $('mapInfo').textContent=cols+'×'+rows+' tiles @ '+ts+'px  ('+S.mode+', '+S.src+', seed '+S.seed+')  entities: '+ents.length;
+}
+
+// ---- exports ----
+function buildData(g,ents){ return {mode:S.mode,cols:g[0].length,rows:g.length,ts:S.ts,tiles:g.map(r=>r.slice()),entities:ents,seed:S.seed}; }
+function toTmx(d){
+  const ts=d.ts, W=d.cols*ts, H=d.rows*ts;
+  const tiles=Object.keys(NAMES).map(k=>'<tile id="'+k+'" />').join('\n    ');
+  let body='';
+  for(let y=0;y<d.rows;y++){ let row=''; for(let x=0;x<d.cols;x++) row+=d.tiles[y][x]+','; body+=row.slice(0,-1)+'\n'; }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<map version="1.10" tiledversion="1.10" orientation="orthogonal" renderorder="right-down" width="'+d.cols+'" height="'+d.rows+'" tilewidth="'+ts+'" tileheight="'+ts+'" infinite="0" nextlayerid="2" nextobjectid="1">\n <tileset firstgid="1" name="map" tilewidth="'+ts+'" tileheight="'+ts+'" tilecount="13" columns="13">\n  <image source="map_tiles.png" width="'+(13*ts)+'" height="'+ts+'"/>\n </tileset>\n <layer id="1" name="ground" width="'+d.cols+'" height="'+d.rows+'">\n  <data encoding="csv">\n'+body+'  </data>\n </layer>\n</map>\n';
+}
+function toGodot(d){
+  let s='[gd_resource type="TileMap" load_steps=2 format=3]\n\n[ext_resource path="res://map_tiles.png" type="Texture" id=1]\n\n[sub_resource type="TileSet" id=TileSet_1]\n';
+  return s+'[node name="TileMap" type="TileMap"]\ncell_size = Vector2('+d.ts+', '+d.ts+')\n\ntile_set = SubResource(TileSet_1)\n';
+}
+function toSolarus(d){
+  let s='map{\n  width: '+d.cols+',\n  height: '+d.rows+',\n  tile_width: '+d.ts+',\n  tile_height: '+d.ts+',\n  source_file: "map_tiles.png",\n  layers: [\n    { "ground": [\n';
+  let rows=[]; for(let y=0;y<d.rows;y++){ rows.push('      "'+d.tiles[y].join(',')+'"'); } s+=rows.join(',\n')+'\n    ] }\n  ]\n}\n'; return s;
+}
+
+// ---- ui ----
+function wireSeg(id,key,parse){ document.querySelectorAll('#'+id+' .btn').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#'+id+' .btn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); S[key]=parse?parse(b.dataset[Object.keys(b.dataset)[0]]):b.dataset[Object.keys(b.dataset)[0]]; generate(); }); }
+wireSeg('modeSeg','mode'); wireSeg('srcSeg','src'); wireSeg('tsSeg','ts',v=>+v);
+$('palPreset').onchange=()=>{ S.preset=$('palPreset').value; S.pal=PRESETS[S.preset].slice(); buildTiles(); generate(); };
+$('cols').onchange=()=>{ S.cols=Math.max(4,+$('cols').value); };
+$('rows').onchange=()=>{ S.rows=Math.max(4,+$('rows').value); };
+$('seed').oninput=()=>{ S.seed=+$('seed').value; $('seedVal').textContent=S.seed; };
+$('seed').value=S.seed; $('seedVal').textContent=S.seed;
+$('rough').oninput=()=>{ S.rough=+$('rough').value; $('roughVal').textContent=S.rough; };
+$('water').oninput=()=>{ S.water=+$('water').value; $('waterVal').textContent=S.water; };
+$('ents').oninput=()=>{ S.ents=+$('ents').value; };
+$('rnd').onclick=()=>{ S.seed=Math.floor(Math.random()*1e6); $('seed').value=S.seed; $('seedVal').textContent=S.seed; generate(); };
+$('gen').onclick=generate;
+$('regen').onclick=()=>{ S.seed=(S.seed*1103515245+12345)>>>0; $('seed').value=S.seed; $('seedVal').textContent=S.seed; generate(); };
+$('genAITile').onclick=async ()=>{
+  $('status').textContent='AI tile… (calling local sidecar)';
+  try{
+    const ts=S.ts; const body=JSON.stringify({ prompt:(S.mode==='topdown'?'pixel art top-down game ground tile, grass and path, seamless':'pixel art platformer tile, stone brick, seamless'), model:'2dpixel', mode:'tileset', width:ts, height:ts, palette:S.preset, steps:28, cfg:7.5, sampler:'euler_a', seed:S.seed||Math.floor(Math.random()*1e6) });
+    const res=await fetch('http://127.0.0.1:18755/generate',{method:'POST',headers:{'Content-Type':'application/json'},body});
+    if(!res.ok) throw new Error('sidecar '+res.status);
+    const url=await res.blob().then(b=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=err;r.readAsDataURL(b);}));
+    const im=new Image(); im.onload=()=>{
+      // overlay the AI tile across the whole map as a texture
+      const cols=lastData?lastData.cols:Math.ceil(map.width/ts), rows=lastData?lastData.rows:Math.ceil(map.height/ts);
+      map.width=cols*ts; map.height=rows*ts;
+      mctx.imageSmoothingEnabled=false;
+      for(let y=0;y<rows;y++)for(let x=0;x<cols;x++) mctx.drawImage(im,x*ts,y*ts,ts,ts);
+      lastPng=map.toDataURL('image/png');
+      lastData=lastData||{mode:S.mode,cols,rows,ts,tiles:[],entities:[]}; lastData.cols=cols; lastData.rows=rows; lastData.ts=ts;
+      $('mapInfo').textContent='AI tile overlay '+cols+'×'+rows+' @ '+ts+'px';
+      $('status').textContent='AI tile generated + overlaid. Send to Editor/Studio or export.';
+    }; im.src=url;
+  }catch(e){ $('status').textContent='AI sidecar unavailable ('+e.message+'). Start it to enable AI tiles.'; }
+};
+$('sendEditor').onclick=()=>{ if(!lastPng)return; parent.postMessage({type:'LOAD_CANVAS',data:{editor:lastPng}},'*'); $('status').textContent='Sent map to Editor.'; };
+$('sendStudio').onclick=()=>{ if(!lastPng)return; parent.postMessage({type:'LOAD_CANVAS',data:{studio:lastPng}},'*'); $('status').textContent='Sent map to Studio.'; };
+$('dlPng').onclick=()=>{ if(!lastPng)return; const a=document.createElement('a'); a.href=lastPng; a.download='map_'+S.seed+'.png'; a.click(); };
+function dl(name,text,mime){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:mime||'application/json'})); a.download=name; a.click(); }
+$('dlTmx').onclick=()=>{ if(!lastData)return; dl('map_'+S.seed+'.tmx', toTmx(lastData),'text/xml'); };
+$('dlGodot').onclick=()=>{ if(!lastData)return; dl('map_'+S.seed+'.tscn', toGodot(lastData),'text/plain'); };
+$('dlSolarus').onclick=()=>{ if(!lastData)return; dl('map_'+S.seed+'.lua', toSolarus(lastData),'text/plain'); };
+// accept a character sprite pushed from Pixscii for entity placement
+window.addEventListener('message',e=>{ if(e.data&&e.data.type==='MAP_ENTITY'){ entSprites.push(e.data.data); $('status').textContent='Character sprite received ('+entSprites.length+'). Regenerate to place.'; } });
+
+function renderLegend(){
+  const used=new Set(); const g=lastData?lastData.tiles:null;
+  $('legend').innerHTML=Object.keys(NAMES).map(k=>{ const tile=TILES[k]; if(!tile)return ''; return '<div style="display:flex;align-items:center;gap:4px"><canvas width="16" height="16" style="image-rendering:pixelated;width:16px;height:16px;border:1px solid #22324a" data-t="'+k+'"></canvas><span class="mono" style="font-size:10px">'+NAMES[k]+'</span></div>'; }).join('');
+  document.querySelectorAll('#legend canvas').forEach(c=>{ const t=TILES[+c.dataset.t]; if(t) c.getContext('2d').drawImage(t,0,0,16,16); });
+}
+
+function generate(){
+  if(!S.seed) S.seed=1;
+  buildTiles();
+  const rng=makeRng(S.seed);
+  const g = S.mode==='topdown' ? genTopDown(rng) : genPlatformer(rng);
+  const ents = placeEntities(g,S.cols,S.rows,rng);
+  render(g,ents);
+  lastData=buildData(g,ents); lastMap=g;
+  renderLegend();
+  $('status').textContent='Generated '+S.mode+' map ('+S.src+'), seed '+S.seed+', '+ents.length+' entities.';
+}
+generate();
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+# ─── Dependencies ───────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ─── Rust / Tauri build output ──────────────────────────────────
+src-tauri/target/
+src-tauri/gen/
+
+# ─── Python sidecar (venv + frozen builds) ──────────────────────
+ai_sidecar/venv/
+ai_sidecar/dist/
+ai_sidecar/build/
+ai_sidecar/__pycache__/
+__pycache__/
+*.pyc
+
+# ─── Bundled engine runtimes / large binaries (bundled at build) ─
+src-tauri/resources/ai_sidecar/
+src-tauri/resources/openstarbound/
+src-tauri/openstarbound/
+src-tauri/solarus/
+src-tauri/tiled/
+src-tauri/cuda_dlls/
+src-tauri/models/
+
+# ─── AI model checkpoints / LoRAs (user-supplied, on D:\) ───────
+*.ckpt
+*.safetensors
+*.pt
+*.bin
+ai_sidecar/out.png
+
+# ─── Frozen sidecar builds / large exes ─────────────────────────
+ai_sidecar/*.exe
+ai_sidecar/ai_sidecar_big.exe
+src-tauri/bin/
+*.exe
+
+# ─── OS / editor cruft ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+.vscode/*
+!.vscode/extensions.json
+
+# ─── Dist (web build) ───────────────────────────────────────────
+dist/

@@ -1,0 +1,303 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Watercolor Sharpener & Extractor</title>
+    <script src="../vendor/tailwind.js"></script>
+    <style>
+        .canvas-container { position: relative; overflow: auto; max-height: 75vh; border: 2px solid #ccc; background: url('data:image/svg+xml;utf8,<svg width="20" height="20" xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="%23ddd"/><rect x="10" y="10" width="10" height="10" fill="%23ddd"/></svg>'); cursor: crosshair; }
+        .canvas-wrapper { position: relative; display: inline-block; }
+        canvas { display: block; }
+        .color-swatch { width: 30px; height: 30px; border: 2px solid #333; border-radius: 4px; display: inline-block; }
+    </style>
+    <style>
+      /* Force dark theme to match Pixel Palace */
+      body { background:#0b0f17 !important; }
+      .bg-white, .bg-gray-50 { background:#111827 !important; }
+      .bg-gray-100 { background:#0b0f17 !important; }
+      .text-gray-800, .text-gray-700, .text-gray-600, .text-gray-500, .text-gray-400, .text-gray-300 { color:#d1d5db !important; }
+      .border-gray-200, .border-gray-300, .border-gray-400 { border-color:#374151 !important; }
+      input, select, textarea { background:#1f2937 !important; color:#e5e7eb !important; border-color:#374151 !important; }
+      .shadow-lg { box-shadow:0 10px 25px rgba(0,0,0,0.5) !important; }
+      .canvas-container { border-color:#374151 !important; }
+      .color-swatch { border-color:#555 !important; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-7xl mx-auto bg-white p-6 rounded-xl shadow-lg">
+        <h1 class="text-2xl font-bold mb-4 text-gray-800">Watercolor Sharpener & Background Extractor</h1>
+        
+        <!-- Controls Row 1 -->
+        <div class="mb-4 flex flex-wrap gap-6 items-center bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">1. Upload Image</label>
+                <input type="file" id="upload" accept="image/*" class="border p-2 rounded text-sm bg-white">
+            </div>
+            
+            <div class="border-l-2 border-gray-300 pl-6">
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">2. Image Sharpening</label>
+                <div class="flex items-center gap-2">
+                    <input type="range" id="sharpenSlider" min="0" max="100" value="0" class="w-32">
+                    <span id="sharpenVal" class="text-sm font-mono font-bold text-blue-600">0%</span>
+                </div>
+                <p class="text-[10px] text-gray-400">Makes pencil lines & paint details "pop" without scaling!</p>
+            </div>
+            
+            <div class="border-l-2 border-gray-300 pl-6">
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Zoom</label>
+                <div class="flex items-center gap-2">
+                    <input type="range" id="zoomSlider" min="10" max="300" value="100" class="w-32">
+                    <span id="zoomVal" class="text-sm font-mono font-bold text-gray-700">100%</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Controls Row 2 -->
+        <div class="mb-4 flex flex-wrap gap-6 items-center bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <div>
+                <label class="block text-xs font-bold text-blue-800 uppercase mb-1">3. Background Color Dropper</label>
+                <div class="flex items-center gap-3">
+                    <button id="btnDropper" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded font-bold shadow transition animate-pulse">
+                        Step A: Click Here, then click background
+                    </button>
+                    <div id="swatch" class="color-swatch bg-white"></div>
+                </div>
+            </div>
+            
+            <div class="border-l-2 border-blue-200 pl-6">
+                <label class="block text-xs font-bold text-blue-800 uppercase mb-1">Color Tolerance</label>
+                <div class="flex items-center gap-2">
+                    <input type="range" id="toleranceSlider" min="0" max="150" value="30" class="w-32">
+                    <span id="toleranceVal" class="text-sm font-mono font-bold text-blue-600">30</span>
+                </div>
+                <p class="text-[10px] text-blue-600">Higher = erases more shadows/creases in the paper</p>
+            </div>
+            
+            <div class="border-l-2 border-blue-200 pl-6">
+                <label class="block text-xs font-bold text-blue-800 uppercase mb-1">Final Step</label>
+                <button id="btnDownload" class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded font-bold shadow-lg transition">
+                    4. Download Transparent PNG
+                </button>
+            </div>
+        </div>
+
+        <!-- Canvas -->
+        <div class="canvas-container" id="container">
+            <div class="canvas-wrapper">
+                <canvas id="mainCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const upload = document.getElementById('upload');
+        const mainCanvas = document.getElementById('mainCanvas');
+        const ctx = mainCanvas.getContext('2d', { willReadFrequently: true });
+        
+        const sharpenSlider = document.getElementById('sharpenSlider');
+        const sharpenVal = document.getElementById('sharpenVal');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const zoomVal = document.getElementById('zoomVal');
+        const toleranceSlider = document.getElementById('toleranceSlider');
+        const toleranceVal = document.getElementById('toleranceVal');
+        
+        const btnDropper = document.getElementById('btnDropper');
+        const swatch = document.getElementById('swatch');
+        const btnDownload = document.getElementById('btnDownload');
+        const container = document.getElementById('container');
+
+        let img = new Image();
+        let originalPixels = null;
+        let currentZoom = 1.0;
+        
+        let isDropperActive = false;
+        let targetColor = null; // {r, g, b}
+
+        // Upload Logic
+        upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                img.onload = () => {
+                    mainCanvas.width = img.width;
+                    mainCanvas.height = img.height;
+                    
+                    // Auto-zoom to fit container
+                    const containerWidth = container.clientWidth - 20;
+                    if (img.width > containerWidth) {
+                        const fitScale = Math.floor((containerWidth / img.width) * 100);
+                        zoomSlider.value = fitScale;
+                        currentZoom = fitScale / 100;
+                        zoomVal.textContent = fitScale + '%';
+                    } else {
+                        zoomSlider.value = 100;
+                        currentZoom = 1.0;
+                        zoomVal.textContent = '100%';
+                    }
+                    
+                    updateCanvasZoom();
+                    
+                    // Draw and cache original pixels
+                    ctx.drawImage(img, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, img.width, img.height);
+                    originalPixels = new Uint8ClampedArray(imgData.data);
+                    
+                    targetColor = null;
+                    swatch.style.backgroundColor = '#ffffff';
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Zoom Logic
+        zoomSlider.addEventListener('input', (e) => {
+            currentZoom = e.target.value / 100;
+            zoomVal.textContent = e.target.value + '%';
+            updateCanvasZoom();
+        });
+
+        function updateCanvasZoom() {
+            if (!img.src) return;
+            const w = Math.floor(img.width * currentZoom);
+            const h = Math.floor(img.height * currentZoom);
+            mainCanvas.style.width = w + 'px';
+            mainCanvas.style.height = h + 'px';
+        }
+
+        // Processing Logic
+        sharpenSlider.addEventListener('input', (e) => {
+            sharpenVal.textContent = e.target.value + '%';
+            applyEffects();
+        });
+        
+        toleranceSlider.addEventListener('input', (e) => {
+            toleranceVal.textContent = e.target.value;
+            applyEffects();
+        });
+
+        // Dropper Tool
+        btnDropper.addEventListener('click', () => {
+            isDropperActive = true;
+            btnDropper.textContent = "Click anywhere on image to pick color...";
+            btnDropper.classList.remove('animate-pulse');
+            btnDropper.classList.replace('bg-blue-500', 'bg-yellow-500');
+            container.style.cursor = 'crosshair';
+        });
+
+        container.addEventListener('click', (e) => {
+            if (!isDropperActive || !originalPixels) return;
+            
+            const rect = mainCanvas.getBoundingClientRect();
+            const scaleX = mainCanvas.width / rect.width;
+            const scaleY = mainCanvas.height / rect.height;
+            const x = Math.floor((e.clientX - rect.left) * scaleX);
+            const y = Math.floor((e.clientY - rect.top) * scaleY);
+            
+            const idx = (y * mainCanvas.width + x) * 4;
+            
+            // Get original color (before filters are applied)
+            targetColor = {
+                r: originalPixels[idx],
+                g: originalPixels[idx+1],
+                b: originalPixels[idx+2]
+            };
+            
+            swatch.style.backgroundColor = `rgb(${targetColor.r}, ${targetColor.g}, ${targetColor.b})`;
+            
+            isDropperActive = false;
+            btnDropper.textContent = "Color Picked! (Click to change)";
+            btnDropper.classList.replace('bg-yellow-500', 'bg-gray-500');
+            container.style.cursor = 'default';
+            
+            applyEffects(); // Re-render with new transparent background
+        });
+
+        // Core Image Processing Engine
+        function applyEffects() {
+            if (!originalPixels) return;
+            
+            const w = mainCanvas.width;
+            const h = mainCanvas.height;
+            
+            // We start with a fresh copy of the original pixels
+            const currentData = new Uint8ClampedArray(originalPixels);
+            
+            // 1. SHARPEN FILTER
+            const sharpenStrength = parseFloat(sharpenSlider.value) / 100.0;
+            if (sharpenStrength > 0) {
+                const w4 = w * 4;
+                // Fast 3x3 convolution
+                for (let y = 1; y < h - 1; y++) {
+                    for (let x = 1; x < w - 1; x++) {
+                        const i = y * w4 + x * 4;
+                        
+                        for (let c = 0; c < 3; c++) {
+                            const center = originalPixels[i + c];
+                            const top = originalPixels[i - w4 + c];
+                            const bottom = originalPixels[i + w4 + c];
+                            const left = originalPixels[i - 4 + c];
+                            const right = originalPixels[i + 4 + c];
+                            
+                            // Matrix: center * 5, neighbors * -1
+                            const val = (center * 5) - top - bottom - left - right;
+                            
+                            // Blend based on strength
+                            currentData[i + c] = center * (1 - sharpenStrength) + val * sharpenStrength;
+                        }
+                    }
+                }
+            }
+            
+            // 2. COLOR EXTRACTOR (Magic Wand)
+            if (targetColor) {
+                const tol = parseInt(toleranceSlider.value);
+                for (let i = 0; i < currentData.length; i += 4) {
+                    const r = currentData[i];
+                    const g = currentData[i+1];
+                    const b = currentData[i+2];
+                    
+                    // Calculate distance from target color
+                    const diff = Math.sqrt(
+                        Math.pow(r - targetColor.r, 2) +
+                        Math.pow(g - targetColor.g, 2) +
+                        Math.pow(b - targetColor.b, 2)
+                    );
+                    
+                    if (diff <= tol) {
+                        currentData[i+3] = 0; // Make transparent
+                    }
+                }
+            }
+            
+            // Push to canvas
+            const newImgData = new ImageData(currentData, w, h);
+            ctx.putImageData(newImgData, 0, 0);
+        }
+
+        btnDownload.addEventListener('click', () => {
+            if (!originalPixels) return alert("Upload an image first.");
+            mainCanvas.toBlob(blob => {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'watercolor_extracted.png';
+                link.click();
+            }, 'image/png');
+        });
+    </script>
+
+<script>
+window.addEventListener('message',function(e){
+  var d=e.data||{};
+  if(d.type==='EXPORT_CANVAS'){
+    var c=document.querySelector('canvas');
+    if(c && c.toDataURL){ try{ parent.postMessage({type:'CANVAS_DATA',from:'tool',data:c.toDataURL()},'*'); }catch(err){} }
+  }
+});
+</script>
+</body>
+</html>
+
+
+

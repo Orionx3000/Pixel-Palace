@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pixscii Generator</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#0b0f17;color:#dfe7f0;overflow:auto}
+  .wrap{width:100%;max-width:100%;margin:0;padding:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+  h1{font-size:18px;margin:0 0 4px;color:#7dd3fc}
+  .hint{font-size:12px;color:#8aa0b8;margin-bottom:10px}
+  .panel{background:#0e1626;border:1px solid #22324a;border-radius:12px;padding:12px;min-width:300px;flex:1}
+  .ctrl{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+  .ctrl label{font-size:12px;color:#9fb6cf}
+  select,input[type=text],input[type=number]{background:#070b15;border:1px solid #2a3f5c;border-radius:8px;color:#dfe7f0;padding:7px 9px;font-family:inherit;font-size:13px;width:100%}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .btn{background:#13203a;color:#cfe3ff;border:1px solid #26456f;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:#1b2c4d}
+  .btn.on{background:#0e639c;border-color:#3aa0ff;color:#fff}
+  .btn.snd{border-color:#2e7d5b}
+  .btn.warn{border-color:#7a5a1f;color:#ffd98a}
+  .seg{display:flex;gap:4px;background:#0a1120;border:1px solid #22324a;border-radius:8px;padding:4px;flex-wrap:wrap}
+  .seg .btn{background:transparent;border:none;padding:5px 8px;font-size:11px}
+  .seg .btn.on{background:#13405f}
+  canvas{background:#111;image-rendering:pixelated;border-radius:8px;max-width:100%;border:1px solid #22324a}
+  .box{background:#0e1626;border:1px solid #22324a;border-radius:12px;padding:10px;margin-top:10px}
+  .box h3{margin:0 0 6px;font-size:12px;color:#7dd3fc;font-weight:600}
+  .mono{font-family:ui-monospace,monospace;font-size:11px;color:#7fd1ff}
+  .swatchrow{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;align-items:center}
+  .sw{width:26px;height:26px;border-radius:6px;border:2px solid #0006;cursor:pointer}
+  .sw.active{border-color:#fff;box-shadow:0 0 8px #fff6}
+  .collap{border:1px solid #22324a;border-radius:8px;margin-top:8px;overflow:hidden}
+  .collap > .ch{background:#0a1120;padding:7px 10px;cursor:pointer;font-size:12px;color:#9fd6ff;display:flex;justify-content:space-between}
+  .collap > .cb{padding:10px;display:none}
+  .collap.open > .cb{display:block}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel" style="max-width:380px">
+    <h1>Pixscii Generator</h1>
+    <div class="hint">Procedural 2D sprite + animation studio. Cel-shaded ramps, pose-based frames, real game palettes. Optional local AI model hook. Send to Editor / Studio / Animator or export engine-ready.</div>
+
+    <div class="ctrl"><label>Generator</label>
+      <div class="seg" id="genSeg">
+        <button class="btn on" data-gen="character">Char</button>
+        <button class="btn" data-gen="creature">Creature</button>
+        <button class="btn" data-gen="robot">Robot</button>
+        <button class="btn" data-gen="boss">Boss</button>
+        <button class="btn" data-gen="item">Item</button>
+        <button class="btn" data-gen="tile">Tile</button>
+        <button class="btn" data-gen="plant">Plant</button>
+        <button class="btn" data-gen="weapon">Weapon</button>
+        <button class="btn" data-gen="crystal">Crystal</button>
+        <button class="btn" data-gen="fish">Fish</button>
+        <button class="btn" data-gen="bird">Bird</button>
+      </div>
+    </div>
+
+    <div class="twocol">
+      <div class="ctrl"><label>Seed <span class="mono" id="seedVal"></span></label>
+        <div class="row" style="margin:0">
+          <input type="number" id="seed" value="12345" style="flex:1"/>
+          <button class="btn" id="rnd" title="Random seed">&#127922;</button>
+        </div>
+      </div>
+      <div class="ctrl"><label>Size</label>
+        <div class="seg" id="sizeSeg">
+          <button class="btn" data-size="16">16</button>
+          <button class="btn on" data-size="24">24</button>
+          <button class="btn" data-size="32">32</button>
+          <button class="btn" data-size="48">48</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctrl"><label>Palette preset</label>
+      <select id="palPreset">
+        <option value="hero">Hero (blue/red)</option>
+        <option value="stardew">Stardew</option>
+        <option value="starbound">Starbound</option>
+        <option value="snes">SNES 15-bit</option>
+        <option value="pico8">PICO-8</option>
+        <option value="gameboy">Game Boy</option>
+        <option value="endesga">Endesga 16</option>
+        <option value="slime">Slime</option>
+        <option value="fire">Fire</option>
+        <option value="forest">Forest</option>
+        <option value="stone">Stone</option>
+        <option value="gold">Gold</option>
+        <option value="ice">Ice</option>
+        <option value="poison">Poison</option>
+      </select>
+    </div>
+
+    <div class="ctrl"><label>Animation</label>
+      <div class="seg" id="animSeg">
+        <button class="btn on" data-anim="idle">Idle</button>
+        <button class="btn" data-anim="walk">Walk</button>
+        <button class="btn" data-anim="attack">Attack</button>
+        <button class="btn" data-anim="fly">Fly</button>
+        <button class="btn" data-anim="static">Static</button>
+      </div>
+    </div>
+
+    <div class="ctrl"><label>Frames</label>
+      <div class="seg" id="frameSeg">
+        <button class="btn" data-frames="1">1</button>
+        <button class="btn on" data-frames="4">4</button>
+        <button class="btn" data-frames="6">6</button>
+        <button class="btn" data-frames="8">8</button>
+      </div>
+    </div>
+
+    <div class="collap open" id="colTune">
+      <div class="ch" onclick="this.parentNode.classList.toggle('open')"><span>Tuning</span><span>&#9662;</span></div>
+      <div class="cb">
+        <div class="ctrl"><label>Detail / Roughness <span class="mono" id="detVal">0.4</span></label>
+          <input type="range" id="det" min="0" max="1" step="0.05" value="0.4"/></div>
+        <div class="ctrl"><label>Limbs / Parts <span class="mono" id="partsVal">3</span></label>
+          <input type="range" id="parts" min="0" max="6" step="1" value="3"/></div>
+        <div class="ctrl"><label>Shade steps <span class="mono" id="shadeVal">3</span></label>
+          <input type="range" id="shade" min="1" max="5" step="1" value="3"/></div>
+        <div class="row" style="margin:4px 0">
+          <label class="btn on" id="outlineBtn" style="font-size:11px">Outline: ON</label>
+          <label class="btn on" id="rampBtn" style="font-size:11px">Cel ramp: ON</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="collap open" id="colPal">
+      <div class="ch" onclick="this.parentNode.classList.toggle('open')"><span>Colors</span><span>&#9662;</span></div>
+      <div class="cb">
+        <div class="swatchrow" id="pal"></div>
+        <div class="row" style="margin-top:8px">
+          <label class="btn" id="skinTone" style="font-size:11px">Skin tone</label>
+          <label class="btn" id="randPal" style="font-size:11px">&#127912; Random palette</label>
+        </div>
+        <input type="color" id="swEdit" value="#10b981" style="margin-top:8px;width:46px;height:30px"/>
+        <span class="mono" style="font-size:10px">click a swatch above, then pick a color to change it</span>
+      </div>
+    </div>
+
+    <div class="collap" id="aiBox">
+      <div class="ch" onclick="this.parentNode.classList.toggle('open')"><span>AI generate (local model)</span><span>&#9662;</span></div>
+      <div class="cb">
+        <div class="ctrl"><label>Prompt</label>
+          <input type="text" id="aiPrompt" placeholder="pixel art hero knight, blue armor, game sprite" value="pixel art hero character, game sprite"/>
+        </div>
+        <div class="twocol">
+          <div class="ctrl"><label>Model preset</label>
+            <select id="aiModel">
+              <option value="allinone">All-in-One Pixel (base)</option>
+              <option value="2dpixel">2D Pixel Toolkit (sprites)</option>
+              <option value="mpixel">M_Pixel (chars/scenes)</option>
+              <option value="pixelxl">Pixel Art XL (SDXL)</option>
+            </select>
+          </div>
+          <div class="ctrl"><label>Posterize palette</label>
+            <select id="aiPal">
+              <option value="none">None (model colours)</option>
+              <option value="pico8">PICO-8</option>
+              <option value="endesga">Endesga 16</option>
+              <option value="gameboy">Game Boy</option>
+              <option value="stardew">Stardew</option>
+              <option value="starbound">Starbound</option>
+              <option value="snes">SNES</option>
+              <option value="hero">Hero</option>
+              <option value="slime">Slime</option>
+              <option value="fire">Fire</option>
+              <option value="forest">Forest</option>
+              <option value="stone">Stone</option>
+              <option value="gold">Gold</option>
+              <option value="ice">Ice</option>
+              <option value="poison">Poison</option>
+            </select>
+          </div>
+        </div>
+        <div class="ctrl"><label>Steps <span class="mono" id="aiStepsVal">24</span></label>
+          <input type="range" id="aiSteps" min="8" max="40" step="1" value="24"/>
+        </div>
+        <div class="hint mono">Needs the Pixel Palace AI sidecar running (Python + SD1.5 pixel checkpoint). If unavailable, falls back to the procedural generator.</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn on" id="gen">&#9881; Generate</button>
+      <button class="btn" id="regen">&#8635; Re-roll</button>
+      <button class="btn warn" id="genAI" title="Uses the local AI sidecar if running">&#10024; Generate (AI)</button>
+    </div>
+    <div class="row">
+      <button class="btn snd" id="sendEditor">&#9656; Editor</button>
+      <button class="btn snd" id="sendStudio">&#9656; Studio</button>
+      <button class="btn snd" id="sendAnimator">&#9656; Animator</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="dlPng">&#8595; Sheet PNG</button>
+      <button class="btn" id="dlJson">&#8595; JSON</button>
+      <button class="btn" id="dlGodot">&#8595; Godot</button>
+      <button class="btn" id="dlSolarus">&#8595; Solarus</button>
+      <button class="btn" id="dlStarbound">&#8595; Starbound</button>
+    </div>
+    <div class="hint mono" id="status">Ready.</div>
+  </div>
+
+  <div class="panel" style="flex:2;min-width:320px">
+    <div class="box" style="display:flex;flex-direction:column;align-items:center">
+      <h3 style="align-self:flex-start">Preview (frame 1) — examine, then tweak &amp; regenerate</h3>
+      <canvas id="prev" width="24" height="24" style="width:min(100%,420px);height:auto;image-rendering:pixelated;background:#0a0f1a;border:1px solid #22324a;border-radius:8px"></canvas>
+    </div>
+    <div class="box"><h3>Sprite Sheet (frames laid horizontally)</h3><canvas id="sheet" width="96" height="24" style="width:100%;height:auto;background:#0a0f1a"></canvas>
+      <div class="mono" id="sheetInfo" style="margin-top:6px"></div>
+    </div>
+    <div class="box"><h3>Frame scrubber</h3>
+      <div class="row">
+        <button class="btn" id="prevF">&#9664; Prev</button>
+        <button class="btn" id="playF">&#9654; Play</button>
+        <button class="btn" id="nextF">Next &#9654;</button>
+        <span class="mono" id="frameInfo"></span>
+      </div>
+      <canvas id="frame" width="24" height="24" style="width:min(60%,240px);height:auto;background:#0a0f1a"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+function makeRng(seed){ let a=seed>>>0; return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+// ---- palette presets (real-ish game palettes; index 0 = outline/dark) ----
+const PRESETS = {
+  hero:    ['#1a1a2e','#2b2b3a','#4a4a6a','#7a8cff','#ffd27a','#e8e8f0','#c0392b','#3ad99a'],
+  stardew: ['#211c34','#4a3b5c','#7c5c9c','#c49adf','#e8b06a','#f2e2c4','#6ab04c','#e15f41'],
+  starbound:['#1d1d28','#3b3b52','#5c6c8a','#8fb3ff','#ffd57a','#eef2f7','#d9443b','#4fd68a'],
+  snes:    ['#000000','#3a3a5c','#6b6b9c','#9b9bd6','#f2c14e','#f7f7f7','#d23b3b','#3bbf6b'],
+  pico8:   ['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa','#ffffff'],
+  gameboy: ['#0f380f','#306230','#8bac0f','#9bbc0f','#0b1a0b','#1e3a1e','#5a7a2a','#cfe09a'],
+  endesga: ['#be4a2f','#d77643','#ead4aa','#e4a672','#b86f50','#733e39','#3e2731','#a22633','#e43b44','#f77622','#feae34','#fee761','#63c74d','#3e8948','#265c42','#193c3e'],
+  slime:   ['#0b3d2e','#1f7a5a','#3ad99a','#bff7e0','#0a2a20','#7affd1','#2bd4a0','#0e5a44'],
+  fire:    ['#3a0d0d','#a02b14','#ff6b1a','#ffd23f','#5a1500','#ffae5e','#7a1a0a','#ffb347'],
+  forest:  ['#1c2e16','#3c6b2e','#6fc24a','#bff08a','#0f1f0c','#2e8b57','#4a8b3a','#e0f0a0'],
+  stone:   ['#2a2a2e','#4a4a52','#7a7a86','#b8b8c4','#15151a','#5a5a66','#3a3a42','#d0d0dc'],
+  gold:    ['#3a2e0d','#a07b14','#ffd23f','#fff3b0','#5a4500','#ffb347','#7a5e10','#fff7d0'],
+  ice:     ['#0d243a','#14618a','#46c8ff','#d6f4ff','#06203a','#9adcff','#2a7ac8','#eafaff'],
+  poison:  ['#2a0d3a','#6a1a8a','#c44aff','#f0c0ff','#1a062a','#e07aff','#5a2a8a','#fae0ff'],
+};
+
+let S = {
+  gen:'character', seed:12345, size:24, sym:'h', det:0.4, parts:3, shade:3,
+  outline:true, ramp:true, pal:PRESETS.hero.slice(), frames:4, anim:'idle',
+  skinTone:false, preset:'hero'
+};
+const $ = id => document.getElementById(id);
+const prev=$('prev'), sheet=$('sheet'), frame=$('frame');
+const pctx=prev.getContext('2d'), sctx=sheet.getContext('2d'), fctx=frame.getContext('2d');
+let activeSw=0, lastFrames=[], curFrame=0, playing=false, playTimer=null, lastJson=null, lastSheet=null;
+
+// ---- color helpers ----
+function hex2rgb(h){ return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+function rgb2hex(r,g,b){ return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function rgb2hsv(r,g,b){ r/=255;g/=255;b/=255; const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn; let h=0; if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; } h/=6; if(h<0)h+=1; return [h,mx?d/mx:0,mx]; }
+function hsv2rgb(h,s,v){ const i=Math.floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s); let r,g,b; if(i%6===0){r=v;g=t;b=p}else if(i%6===1){r=q;g=v;b=p}else if(i%6===2){r=p;g=v;b=t}else if(i%6===3){r=p;g=q;b=v}else if(i%6===4){r=t;g=p;b=v}else{r=v;g=p;b=q} return [r*255,g*255,b*255]; }
+function shiftHex(hex,dl){ const [r,g,b]=hex2rgb(hex); const [h,s,v]=rgb2hsv(r,g,b); return rgb2hex(...hsv2rgb(h,s,Math.max(0,Math.min(1,v+dl)))); }
+// build a cel ramp from a base color: [core(dark), shadow, mid, light, highlight]
+function rampFrom(base, steps){
+  const [r,g,b]=hex2rgb(base); const [h,s,v]=rgb2hsv(r,g,b);
+  const out=[];
+  const lo=-0.32, hi=0.30;
+  for(let i=0;i<steps;i++){ const t=steps===1?0:(i/(steps-1))*2-1; const dl = t<0 ? lo*(1+t) : hi*t; out.push(rgb2hex(...hsv2rgb(h, Math.max(0,Math.min(1,s+(t>0?0.08*t:0))), Math.max(0,Math.min(1,v+dl)) ))); }
+  return out; // index 0 = darkest
+}
+function pick(pal,i){ return pal[((i%pal.length)+pal.length)%pal.length]; }
+
+// ---- grid helpers ----
+function newGrid(size){ return Array.from({length:size},()=>Array(size).fill(null)); }
+function px(g,size,x,y,c){ if(x>=0&&y>=0&&x<size&&y<size&&c) g[y][x]=c; }
+function rect(g,size,x0,y0,x1,y1,c){ for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++) px(g,size,x,y,c); }
+function ellipse(g,size,cx,cy,rx,ry,c,fill){ for(let y=Math.floor(cy-ry);y<=Math.ceil(cy+ry);y++)for(let x=Math.floor(cx-rx);x<=Math.ceil(cx+rx);x++){ const dx=(x-cx)/rx,dy=(y-cy)/ry; if(dx*dx+dy*dy<=1){ if(fill||Math.abs(dx*dx+dy*dy-1)<0.18) px(g,size,x,y,c); } } }
+function addNoise(g,rng,size,det,pal){ const amt=Math.floor(det*size*size*0.10); for(let i=0;i<amt;i++){ const x=Math.floor(rng()*size),y=Math.floor(rng()*size); if(g[y][x]) g[y][x]=pick(pal,Math.floor(rng()*pal.length)); } }
+function outline(g,size){ const out=[]; for(let y=0;y<size;y++)for(let x=0;x<size;x++){ if(g[y][x]) continue; if((x>0&&g[y][x-1])||(x<size-1&&g[y][x+1])||(y>0&&g[y-1][x])||(y<size-1&&g[y+1][x])) out.push([x,y]); } out.forEach(([x,y])=>g[y][x]=S.pal[0]); }
+function mirror(g,size,sym){ const h=Math.floor(size/2); for(let y=0;y<size;y++)for(let x=0;x<size;x++){ if(sym==='h'||sym==='both'){ if(x<h) g[y][size-1-x]=g[y][x]; } if(sym==='v'||sym==='both'){ if(y<h) g[size-1-y][x]=g[y][x]; } } }
+
+// ---- pose offsets (animation) ----
+// returns {bodyY, lLeg, rLeg, lArm, rArm, weapon} per-frame multipliers-ish
+function pose(anim, f, frames){
+  const ph = frames>1 ? (f/frames)*Math.PI*2 : 0;
+  const sin=Math.sin(ph), cos=Math.cos(ph);
+  if(anim==='idle')   return { body:Math.round(sin*0.6), lLeg:0, rLeg:0, lArm:Math.round(sin*0.4), rArm:Math.round(sin*0.4), bob:Math.round(Math.abs(sin)*0.5) };
+  if(anim==='walk')   return { body:0, lLeg:Math.round(sin*1.4), rLeg:Math.round(-sin*1.4), lArm:Math.round(-sin*1.2), rArm:Math.round(sin*1.2), bob:Math.round(Math.abs(cos)*0.6) };
+  if(anim==='attack') return { body:Math.round(-Math.abs(sin)*0.5), lLeg:0, rArm:Math.round(-Math.abs(sin)*2.2), lArm:Math.round(Math.abs(sin)*1.2), weapon:Math.round(-Math.abs(sin)*2.4), bob:0 };
+  if(anim==='fly')    return { body:Math.round(sin*1.2), lArm:Math.round(Math.sin(ph*2)*1.6), rArm:Math.round(Math.sin(ph*2+1)*1.6), lLeg:Math.round(sin*0.8), rLeg:Math.round(-sin*0.8), bob:0 };
+  return { body:0,lLeg:0,rLeg:0,lArm:0,rArm:0,bob:0 };
+}
+
+// ---- generators (return base grid; poses are applied in generate()) ----
+function genCharacter(rng,size,pal){
+  const g=newGrid(size);
+  const steps=S.shade;
+  const skinBase = S.skinTone ? ['#ffdbac','#f1c27d','#e0ac69','#c68642','#8d5524'][Math.floor(rng()*5)] : pal[4];
+  const skin=rampFrom(skinBase,steps), cloth=rampFrom(pal[3],steps), hair=rampFrom(pal[7],steps), boot=rampFrom(pal[1],steps), eye=pal[0];
+  const cx=Math.floor(size/2);
+  const headTop=Math.floor(size*0.10), headH=Math.floor(size*0.24), headW=Math.floor(size*0.34);
+  const bodyTop=headTop+headH, bodyH=Math.floor(size*0.30), bodyW=Math.floor(size*0.48);
+  const legTop=bodyTop+bodyH, legH=size-legTop-1;
+  // head
+  rect(g,size,cx-Math.floor(headW/2),headTop,cx+Math.ceil(headW/2)-1,headTop+headH-1,skin[Math.floor(steps/2)]);
+  rect(g,size,cx-Math.floor(headW/2),headTop,cx+Math.ceil(headW/2)-1,headTop+1,hair[steps-1]);
+  rect(g,size,cx-Math.floor(headW/2),headTop,cx-Math.floor(headW/2)+1,headTop+headH-1,hair[steps-1]);
+  rect(g,size,cx+Math.ceil(headW/2)-2,headTop,cx+Math.ceil(headW/2)-1,headTop+headH-1,hair[steps-1]);
+  const ey=headTop+Math.floor(headH*0.45);
+  px(g,size,cx-Math.floor(headW/3),ey,eye); px(g,size,cx+Math.floor(headW/3)-1,ey,eye);
+  // body (shaded)
+  rect(g,size,cx-Math.floor(bodyW/2),bodyTop,cx+Math.ceil(bodyW/2)-1,bodyTop+bodyH-1,cloth[Math.floor(steps/2)]);
+  rect(g,size,cx-Math.floor(bodyW/2),bodyTop+bodyH-2,cx+Math.ceil(bodyW/2)-1,bodyTop+bodyH-1,cloth[0]); // shadow hem
+  rect(g,size,cx-Math.floor(bodyW/2),bodyTop,cx-Math.floor(bodyW/2)+1,bodyTop+bodyH-1,cloth[steps-1]); // light edge
+  // arms
+  rect(g,size,cx-Math.floor(bodyW/2)-2,bodyTop,cx-Math.floor(bodyW/2)-1,bodyTop+bodyH-2,skin[Math.floor(steps/2)]);
+  rect(g,size,cx+Math.ceil(bodyW/2),bodyTop,cx+Math.ceil(bodyW/2)+1,bodyTop+bodyH-2,skin[Math.floor(steps/2)]);
+  // legs
+  rect(g,size,cx-Math.floor(bodyW/2),legTop,cx-1,size-2,boot[Math.floor(steps/2)]);
+  rect(g,size,cx,legTop,cx+Math.ceil(bodyW/2)-1,size-2,boot[Math.floor(steps/2)]);
+  px(g,size,cx-Math.floor(bodyW/2),size-1,boot[0]); px(g,size,cx+Math.ceil(bodyW/2)-1,size-1,boot[0]);
+  // parts
+  for(let i=0;i<S.parts;i++){ const yy=bodyTop+Math.floor((i+1)*bodyH/(S.parts+1)); px(g,size,cx-Math.floor(bodyW/2),yy,pal[2]); px(g,size,cx+Math.ceil(bodyW/2)-1,yy,pal[2]); }
+  addNoise(g,rng,size,S.det,pal);
+  if(S.outline) outline(g,size);
+  return g;
+}
+function genCreature(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade;
+  const body=rampFrom(pal[3],steps), dark=rampFrom(pal[1],steps), eye=pal[0];
+  const cy=Math.floor(size/2), rh=Math.floor(size*0.32), rw=Math.floor(size*0.42);
+  ellipse(g,size,size/2,cy,rw,rh,body[Math.floor(steps/2)],true);
+  ellipse(g,size,size/2-2,cy-2,Math.max(1,rw-3),Math.max(1,rh-3),body[steps-1],false);
+  px(g,size,Math.floor(size/2)-Math.floor(rw*0.4),cy-Math.floor(rh*0.2),eye); px(g,size,Math.floor(size/2)+Math.floor(rw*0.4)-1,cy-Math.floor(rh*0.2),eye);
+  const legs=Math.max(2,S.parts*2);
+  for(let i=0;i<legs;i++){ const lx=Math.floor(size/2)-rw+Math.floor(i*(2*rw)/(legs-1)); rect(g,size,lx,cy+rh,lx,cy+rh+1,dark[0]); }
+  addNoise(g,rng,size,S.det,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genRobot(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade;
+  const body=rampFrom(pal[3],steps), head=rampFrom(pal[2],steps), eye=rampFrom(pal[6],steps), metal=rampFrom(pal[1],steps);
+  const cx=Math.floor(size/2);
+  const headTop=Math.floor(size*0.12), headW=Math.floor(size*0.32), headH=Math.floor(size*0.20);
+  rect(g,size,cx-Math.floor(headW/2),headTop,cx+Math.ceil(headW/2)-1,headTop+headH-1,head[Math.floor(steps/2)]);
+  px(g,size,cx-Math.floor(headW/4),headTop+Math.floor(headH*0.4),eye[steps-1]); px(g,size,cx+Math.floor(headW/4)-1,headTop+Math.floor(headH*0.4),eye[steps-1]);
+  const bodyTop=headTop+headH, bodyH=Math.floor(size*0.38), bodyW=Math.floor(size*0.46);
+  rect(g,size,cx-Math.floor(bodyW/2),bodyTop,cx+Math.ceil(bodyW/2)-1,bodyTop+bodyH-1,body[Math.floor(steps/2)]);
+  rect(g,size,cx-Math.floor(bodyW/2),bodyTop,cx-Math.floor(bodyW/2)+1,bodyTop+bodyH-1,body[steps-1]);
+  rect(g,size,cx,bodyTop+Math.floor(bodyH*0.4),cx,bodyTop+Math.floor(bodyH*0.7),eye[steps-1]);
+  const legs=Math.max(2,S.parts); for(let i=0;i<legs;i++){ const lx=cx-Math.floor(bodyW/2)+Math.floor(i*(bodyW)/(Math.max(1,legs-1))); rect(g,size,lx,bodyTop+bodyH,lx,size-1,metal[Math.floor(steps/2)]); }
+  addNoise(g,rng,size,S.det*0.3,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genBoss(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade;
+  const body=rampFrom(pal[3],steps), spike=rampFrom(pal[5],steps), glow=rampFrom(pal[6],steps), eye=rampFrom(pal[7],steps);
+  const cx=Math.floor(size/2), cy=Math.floor(size*0.55), rw=Math.floor(size*0.42), rh=Math.floor(size*0.30);
+  ellipse(g,size,cx,cy,rw,rh,body[Math.floor(steps/2)],true);
+  // spikes
+  for(let i=0;i<Math.max(4,S.parts*2);i++){ const a=(i/Math.max(4,S.parts*2))*Math.PI*2; const sx=Math.round(cx+Math.cos(a)*rw), sy=Math.round(cy+Math.sin(a)*rh); rect(g,size,sx,sy,sx,sy,spike[steps-1]); }
+  px(g,size,cx-Math.floor(rw*0.3),cy-Math.floor(rh*0.2),eye[steps-1]); px(g,size,cx+Math.floor(rw*0.3)-1,cy-Math.floor(rh*0.2),eye[steps-1]);
+  rect(g,size,cx-2,cy,cx+1,cy,glow[steps-1]);
+  addNoise(g,rng,size,S.det*0.6,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genItem(rng,size,pal){ return genWeapon(rng,size,pal); }
+function genTile(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade; const base=rampFrom(pal[1],steps);
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++) g[y][x]=base[Math.floor(steps/2)];
+  addNoise(g,rng,size,S.det*1.4,pal);
+  // edge darkening for tileability read
+  for(let x=0;x<size;x++){ g[0][x]=base[0]; g[size-1][x]=base[0]; } for(let y=0;y<size;y++){ g[y][0]=base[0]; g[y][size-1]=base[0]; }
+  return g;
+}
+function genPlant(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade; const stem=rampFrom(pal[1],steps), leaf=rampFrom(pal[3],steps), bloom=rampFrom(pal[7],steps);
+  const cx=Math.floor(size/2);
+  for(let y=Math.floor(size*0.5);y<size;y++) px(g,size,cx,y,stem[Math.floor(steps/2)]);
+  const branches=Math.max(1,S.parts);
+  for(let b=0;b<branches;b++){ const by=Math.floor(size*(0.3+0.4*rng())); const spread=Math.floor((1-by/(size*0.6))*size*0.35*(0.5+rng())); for(let y=2;y<by;y++){ const w=Math.floor(spread*(y/by)); rect(g,size,cx-w,y,cx+w,y,y%3?leaf[Math.floor(steps/2)]:leaf[steps-1]); } }
+  px(g,size,cx,1,bloom[steps-1]); addNoise(g,rng,size,S.det*0.7,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genWeapon(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade; const blade=rampFrom(pal[4],steps), guard=rampFrom(pal[5],steps), hilt=rampFrom(pal[7],steps);
+  const cx=Math.floor(size/2); const kind=Math.floor(rng()*3);
+  if(kind===0){ for(let y=3;y<size-3;y++){ px(g,size,cx,y,blade[Math.floor(steps/2)]); px(g,size,cx-1,y,blade[steps-1]); px(g,size,cx+1,y,blade[0]); } rect(g,size,cx-2,3,cx+2,3,guard[steps-1]); rect(g,size,cx-3,size-3,cx+3,size-3,hilt[Math.floor(steps/2)]); }
+  else if(kind===1){ for(let x=3;x<size-3;x++) px(g,size,x,cx,blade[Math.floor(steps/2)]); rect(g,size,size-4,cx-5,size-4,cx+4,guard[Math.floor(steps/2)]); }
+  else { for(let y=4;y<size-2;y++){ const w=Math.floor((y-4)*0.5); rect(g,size,cx-w,y,cx+w,y,blade[Math.floor(steps/2)]); } rect(g,size,cx-6,4,cx+6,4,guard[steps-1]); }
+  addNoise(g,rng,size,S.det*0.4,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genCrystal(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade; const c=rampFrom(pal[3],steps);
+  const cx=Math.floor(size/2), h=Math.floor(size*0.6), w=Math.floor(size*0.22);
+  for(let y=size-2;y>size-2-h;y--){ const t=(size-2-y)/h; const ww=Math.floor(w*(1-t*0.6)); rect(g,size,cx-ww,y,cx+ww,y,t<0.5?c[Math.floor(steps/2)]:c[steps-1]); }
+  px(g,size,cx,size-2-h,c[steps-1]); addNoise(g,rng,size,S.det*0.4,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genFish(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade; const body=rampFrom(pal[3],steps), fin=rampFrom(pal[2],steps);
+  const cy=Math.floor(size/2), len=Math.floor(size*0.7), h=Math.floor(size*0.3);
+  for(let y=cy-h;y<=cy+h;y++)for(let x=Math.floor(size*0.1);x<Math.floor(size*0.1)+len;x++){ const t=(x-Math.floor(size*0.1))/len; const hh=Math.floor(h*(1-Math.abs(t-0.4)*1.4)); if(Math.abs(y-cy)<=hh) px(g,size,x,y,(x+y)%2?body[Math.floor(steps/2)]:body[steps-1]); }
+  px(g,size,Math.floor(size*0.1)+2,cy-2,pal[0]); rect(g,size,Math.floor(size*0.1)+len-1,cy-h,Math.floor(size*0.1)+len-1,cy+h,fin[steps-1]);
+  addNoise(g,rng,size,S.det*0.5,pal); if(S.outline) outline(g,size);
+  return g;
+}
+function genBird(rng,size,pal){
+  const g=newGrid(size); const steps=S.shade; const body=rampFrom(pal[3],steps), wing=rampFrom(pal[2],steps), beak=rampFrom(pal[7],steps);
+  const cx=Math.floor(size/2), cy=Math.floor(size*0.5), rw=Math.floor(size*0.34), rh=Math.floor(size*0.26);
+  ellipse(g,size,cx,cy,rw,rh,body[Math.floor(steps/2)],true);
+  px(g,size,cx,cy-rh-1,beak[steps-1]); rect(g,size,cx-rw-2,cy,cx-rw+1,cy,wing[steps-1]); rect(g,size,cx+rw-1,cy,cx+rw+2,cy,wing[steps-1]);
+  addNoise(g,rng,size,S.det*0.5,pal); if(S.outline) outline(g,size);
+  return g;
+}
+const GENERATORS={character:genCharacter,creature:genCreature,robot:genRobot,boss:genBoss,item:genItem,tile:genTile,plant:genPlant,weapon:genWeapon,crystal:genCrystal,fish:genFish,bird:genBird};
+
+// ---- apply pose by shifting rows/limbs ----
+function applyPose(g,size,anim,f,frames){
+  if(anim==='static'||frames<=1) return g;
+  const p=pose(anim,f,frames);
+  const out=newGrid(size);
+  // move whole body by body+bob
+  const dy=(p.body||0)+(p.bob||0);
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){ const ny=y+dy; if(ny>=0&&ny<size) out[ny][x]=g[y][x]; }
+  return out;
+}
+
+// ---- engine exports ----
+function meta(){
+  return {
+    tool:'pixscii', gen:S.gen, anim:S.anim, seed:S.seed, size:S.size,
+    palette:S.pal, shadeSteps:S.shade, frames:S.frames,
+    sheet:{ width:sheet.width, height:S.size, frameW:S.size, frameH:S.size, count:S.frames }
+  };
+}
+function godotTres(){
+  const m=meta();
+  const fps = S.anim==='walk'?8:S.anim==='attack'?12:6;
+  let s='[gd_resource type="TextureAtlas" load_steps=2 format=3]\n\n[sub_resource type="AtlasTexture" id=Atlas_1]\n';
+  return '[gd_resource type="SpriteFrames" load_steps=2 format=3]\n\n'+
+    '[ext_resource path="res://sprites/'+S.gen+'_'+S.seed+'.png" type="Texture" id=1]\n\n'+
+    '[sub_resource type="SpriteFrames" id=SpriteFrames_1]\n'+
+    'animations = [ {\n'+
+    '  "name":"'+S.anim+'",\n'+
+    '  "speed":'+fps+'.0,\n'+
+    '  "frames":[\n'+
+    Array.from({length:m.sheet.count},(_,i)=>'    AtlasTexture(Texture=ExtResource(1), Region=Rect2('+(i*S.size)+', 0, '+S.size+', '+S.size+'))').join(',\n')+
+    '\n  ]\n} ]\n';
+}
+function solarusDat(){
+  const m=meta();
+  let frames='';
+  for(let i=0;i<m.sheet.count;i++) frames+='    - { x: '+(i*S.size)+', y: 0, width: '+S.size+', height: '+S.size+' }\n';
+  return 'animation_set{\n  name: "'+S.anim+'",\n  src_image: "'+S.gen+'_'+S.seed+'.png",\n  frame_delay: '+(S.anim==='walk'?120:(S.anim==='attack'?80:160))+',\n  frames: [\n'+frames+'  ]\n}\n';
+}
+function starboundJson(){
+  const m=meta();
+  return JSON.stringify({
+    name:S.gen+'_'+S.seed, anim:S.anim, frameWidth:S.size, frameHeight:S.size,
+    frameCount:m.sheet.count, fps:(S.anim==='walk'?8:6),
+    frames:Array.from({length:m.sheet.count},(_,i)=>({x:i*S.size,y:0,w:S.size,h:S.size}))
+  },null,2);
+}
+
+// ---- render ----
+function drawGrid(grid,ctx,size,ox,oy){ for(let y=0;y<size;y++)for(let x=0;x<size;x++){ const c=grid[y][x]; if(c){ ctx.fillStyle=c; ctx.fillRect(ox+x,oy+y,1,1); } } }
+function updateDims(){ prev.width=S.size; prev.height=S.size; sheet.width=S.size*S.frames; sheet.height=S.size; frame.width=S.size; frame.height=S.size; }
+function generate(){
+  if(!S.seed) S.seed=1;
+  const gen=GENERATORS[S.gen];
+  updateDims();
+  const frames=[];
+  for(let f=0;f<S.frames;f++){
+    const frng=makeRng((S.seed*2654435761 ^ (f*0x9e3779b1))>>>0);
+    let grid=gen(frng,S.size,S.pal);
+    grid=applyPose(grid,S.size,S.anim,f,S.frames);
+    mirror(grid,S.size,S.sym);
+    frames.push(grid);
+  }
+  lastFrames=frames; curFrame=0;
+  pctx.clearRect(0,0,S.size,S.size); drawGrid(frames[0],pctx,S.size,0,0);
+  fctx.clearRect(0,0,S.size,S.size); drawGrid(frames[0],fctx,S.size,0,0);
+  sctx.clearRect(0,0,sheet.width,S.size); frames.forEach((g,i)=>drawGrid(g,sctx,S.size,i*S.size,0));
+  $('frameInfo').textContent='frame 1/'+S.frames;
+  $('sheetInfo').textContent=sheet.width+'×'+S.size+'  ('+S.frames+' frames @ '+S.size+'px, '+S.anim+')  seed '+S.seed;
+  lastSheet=sheet.toDataURL('image/png'); lastJson=meta();
+  $('status').textContent='Generated '+S.gen+' / '+S.anim+' / seed '+S.seed+'. Examine, tweak, then send or export.';
+}
+function showFrame(i){ curFrame=(i+S.frames)%S.frames; fctx.clearRect(0,0,S.size,S.size); drawGrid(lastFrames[curFrame],fctx,S.size,0,0); $('frameInfo').textContent='frame '+(curFrame+1)+'/'+S.frames; }
+
+// ---- AI hook: talks to the local frozen sidecar over HTTP ----
+// The model runs at NATIVE resolution (no forced downscale, no symmetry, no
+// procedural posing) — Pixscii just displays what the model produced. The user
+// can then optionally slice it into a sprite sheet for animation.
+const PP_AI_PORT = (window.PP_AI_PORT || 18755);
+const PP_AI_ENDPOINT = 'http://127.0.0.1:'+PP_AI_PORT+'/generate';
+function aiAvailable(){ return true; }
+async function aiGenerateSprite(){
+  const prompt=$('aiPrompt').value || 'pixel art character, game sprite';
+  const pal=$('aiPal').value;
+  const steps=+$('aiSteps').value;
+  // ask the model for a higher native res so detail isn't crushed
+  const native = Math.max(64, Math.min(256, S.size*2));
+  const body=JSON.stringify({ prompt:prompt, model:$('aiModel').value, mode:'sprite',
+    width:native, height:native, palette:pal, steps:steps, cfg:7.5,
+    sampler:'euler_a', seed:S.seed||Math.floor(Math.random()*1e6) });
+  const res=await fetch(PP_AI_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:body});
+  if(!res.ok) throw new Error('sidecar '+(res.status));
+  const blob=await res.blob();
+  return await new Promise((ok,err)=>{ const r=new FileReader(); r.onload=()=>ok(r.result); r.onerror=err; r.readAsDataURL(blob); });
+}
+async function generateAI(){
+  $('status').textContent='AI generate… (calling local sidecar at native res)';
+  try{
+    const url=await aiGenerateSprite();
+    const im=new Image();
+    im.onload=()=>{
+      // Display the model output 1:1 — do NOT mirror/pose/downscale.
+      const n=im.width;
+      prev.width=n; prev.height=n; pctx.imageSmoothingEnabled=false;
+      pctx.clearRect(0,0,n,n); pctx.drawImage(im,0,0);
+      frame.width=n; frame.height=n; fctx.imageSmoothingEnabled=false;
+      fctx.clearRect(0,0,n,n); fctx.drawImage(im,0,0);
+      // Build a sprite sheet: tile the native sprite across S.frames columns
+      // so the animator can use it (no fake posing — just repeated frames).
+      sheet.width=n*S.frames; sheet.height=n; sctx.imageSmoothingEnabled=false;
+      sctx.clearRect(0,0,sheet.width,n);
+      for(let i=0;i<S.frames;i++) sctx.drawImage(im,i*n,0);
+      $('frameInfo').textContent='frame 1/'+S.frames+' · '+n+'px native';
+      lastSheet=sheet.toDataURL('image/png');
+      // stash the raw PNG for Send/export
+      lastFrames=[]; curFrame=0;
+      $('status').textContent='AI sprite generated ('+n+'×'+n+'px native). Use frames/anim on the sheet, or just Send it.';
+    };
+    im.src=url;
+  }catch(e){
+    $('status').textContent='AI sidecar unavailable ('+e.message+'). Used procedural fallback. Start the sidecar to enable AI.';
+    generate();
+  }
+}
+
+// ---- UI wiring ----
+function wireSeg(id,key,parse){ document.querySelectorAll('#'+id+' .btn').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#'+id+' .btn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); S[key]=parse?parse(b.dataset[Object.keys(b.dataset)[0]]):b.dataset[Object.keys(b.dataset)[0]]; if(key==='size'||key==='frames') updateDims(); generate(); }); }
+wireSeg('genSeg','gen'); wireSeg('symSeg','sym'); wireSeg('sizeSeg','size',v=>+v); wireSeg('frameSeg','frames',v=>+v); wireSeg('animSeg','anim');
+$('seed').oninput=()=>{ S.seed=+$('seed').value; $('seedVal').textContent=S.seed; };
+$('seed').value=S.seed; $('seedVal').textContent=S.seed;
+$('det').oninput=()=>{ S.det=+$('det').value; $('detVal').textContent=S.det; };
+$('parts').oninput=()=>{ S.parts=+$('parts').value; $('partsVal').textContent=S.parts; };
+$('shade').oninput=()=>{ S.shade=+$('shade').value; $('shadeVal').textContent=S.shade; };
+$('rnd').onclick=()=>{ S.seed=Math.floor(Math.random()*1e6); $('seed').value=S.seed; $('seedVal').textContent=S.seed; generate(); };
+$('palPreset').onchange=()=>{ S.preset=$('palPreset').value; S.pal=PRESETS[S.preset].slice(); S.skinTone=false; renderPal(); generate(); };
+$('randPal').onclick=()=>{ const keys=Object.keys(PRESETS); S.preset=keys[Math.floor(Math.random()*keys.length)]; $('palPreset').value=S.preset; S.pal=PRESETS[S.preset].slice(); S.skinTone=false; renderPal(); generate(); };
+$('skinTone').onclick=()=>{ S.skinTone=!S.skinTone; $('skinTone').classList.toggle('on',S.skinTone); generate(); };
+$('outlineBtn').onclick=()=>{ S.outline=!S.outline; $('outlineBtn').textContent='Outline: '+(S.outline?'ON':'OFF'); $('outlineBtn').classList.toggle('on',S.outline); generate(); };
+$('rampBtn').onclick=()=>{ S.ramp=!S.ramp; $('rampBtn').textContent='Cel ramp: '+(S.ramp?'ON':'OFF'); $('rampBtn').classList.toggle('on',S.ramp); generate(); };
+$('aiSteps').oninput=()=>{ $('aiStepsVal').textContent=$('aiSteps').value; };
+$('swEdit').oninput=()=>{ S.pal[activeSw]=$('swEdit').value; renderPal(); generate(); };
+$('gen').onclick=generate;
+$('regen').onclick=()=>{ S.seed=(S.seed*1103515245+12345)>>>0; $('seed').value=S.seed; $('seedVal').textContent=S.seed; generate(); };
+$('genAI').onclick=generateAI;
+$('prevF').onclick=()=>showFrame(curFrame-1);
+$('nextF').onclick=()=>showFrame(curFrame+1);
+$('playF').onclick=()=>{ playing=!playing; $('playF').textContent=playing?'⏸ Pause':'▶ Play'; if(playing){ playTimer=setInterval(()=>showFrame(curFrame+1), S.anim==='walk'?120:(S.anim==='attack'?80:160)); } else clearInterval(playTimer); };
+
+function renderPal(){
+  $('pal').innerHTML=S.pal.map((c,i)=>'<div class="sw'+(i===activeSw?' active':'')+'" style="background:'+c+'" data-i="'+i+'"></div>').join('');
+  $('swEdit').value=S.pal[activeSw];
+  document.querySelectorAll('#pal .sw').forEach(el=>el.onclick=()=>{ activeSw=+el.dataset.i; renderPal(); });
+}
+function dl(name,text,mime){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:mime||'application/json'})); a.download=name; a.click(); }
+$('dlPng').onclick=()=>{ if(!lastSheet)return; const a=document.createElement('a'); a.href=lastSheet; a.download='pixscii_'+S.gen+'_'+S.seed+'.png'; a.click(); };
+$('dlJson').onclick=()=>{ if(!lastJson)return; dl('pixscii_'+S.gen+'_'+S.seed+'.json', JSON.stringify(lastJson,null,2)); };
+$('dlGodot').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.seed+'.tres', godotTres(), 'text/plain'); };
+$('dlSolarus').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.seed+'.dat', solarusDat(), 'text/plain'); };
+$('dlStarbound').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.seed+'.json', starboundJson(), 'application/json'); };
+$('sendEditor').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{editor:lastSheet}},'*'); $('status').textContent='Sent sheet to Editor.'; };
+$('sendStudio').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{studio:lastSheet}},'*'); $('status').textContent='Sent sheet to Studio.'; };
+$('sendAnimator').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{animator:lastSheet}},'*'); $('status').textContent='Sent sheet to Animator.'; };
+
+renderPal(); generate();
+</script>
+</body>
+</html>

@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Pixel Forge Studio — Color Editor + Pixel Art</title>
+    <script src="../vendor/tailwind.js"></script>
+    <style>
+        * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        html,body { touch-action: none; overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
+        .bg-checkered { background-color: #1a1a1a; background-image: linear-gradient(45deg,#111 25%,transparent 25%,transparent 75%,#111 75%,#111),linear-gradient(45deg,#111 25%,transparent 25%,transparent 75%,#111 75%,#111); background-size:20px 20px; background-position:0 0,10px 10px; }
+        canvas { image-rendering: pixelated; touch-action: none; }
+        body { font-family: 'Inter', system-ui, 'Segoe UI', 'Segoe UI Symbol', 'Segoe UI Emoji', sans-serif !important; }
+        .cswatch { border-radius:9999px; border:2px solid transparent; transition:all .1s; width:22px; height:22px; cursor:pointer; flex-shrink:0; }
+        .cswatch:hover { transform:scale(1.15); }
+        .cswatch.active { border-color:#fff; transform:scale(1.2); box-shadow:0 0 8px rgba(255,255,255,.3); }
+        .frame-thumb { border:2px solid transparent; cursor:pointer; transition:all .15s; image-rendering:pixelated; }
+        .frame-thumb.active { border-color:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.4); }
+        .frame-thumb:hover { border-color:#555; }
+        .timeline::-webkit-scrollbar { height:6px; }
+        .timeline::-webkit-scrollbar-thumb { background:#444; border-radius:3px; }
+        .palette-grid { display:flex; flex-wrap:wrap; gap:3px; padding:4px; }
+        .palette-card { cursor:pointer; border:1px solid transparent; transition:all .1s; }
+        .palette-card:hover { border-color:#22c55e; background:#222; }
+        .palette-card.active { border-color:#22c55e; background:#1a3a1a; }
+        .tool-btn { padding:6px 12px; border-radius:6px; font-size:13px; font-weight:600; transition:all .1s; background:#333; color:#aaa; border:none; cursor:pointer; }
+        .tool-btn:hover { background:#444; color:#fff; }
+        .tool-btn.active { background:#22c55e; color:#fff; }
+        @media (max-width:768px) { .toolbar-wrap { gap:4px; } .tool-btn { padding:4px 8px; font-size:11px; } }
+    </style>
+</head>
+<body class="bg-neutral-900 text-neutral-100 min-h-screen p-2 md:p-4 font-sans overflow-x-hidden">
+<div id="root"></div>
+<script src="../vendor/react.production.min.js"></script>
+<script src="../vendor/react-dom.production.min.js"></script>
+<script src="../vendor/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback, useMemo } = React;
+
+// ─── PALETTES ────────────────────────────────────────────────────────────────
+const PALETTES = {
+"Retro Console": {
+"CGA (16)": ["#000000","#0000aa","#00aaaa","#00aa00","#aa0000","#aa00aa","#aa5500","#aaaaaa","#555555","#5555ff","#55ffff","#55ff55","#ff5555","#ff55ff","#ffff55","#ffffff"],
+"Game Boy": ["#0f380f","#306230","#8bac0f","#9bbc0f"],
+"Pico-8": ["#000000","#1d2b53","#7e2553","#008751","#ab5236","#5f574f","#c2c3c7","#fff1e8","#ff004d","#ffa300","#ffec27","#00e436","#29adff","#83769c","#ff77a8","#ffccaa"],
+"NES": ["#000000","#fcfcfc","#f8f8f8","#bcbcbc","#7c7c7c","#a4e4fc","#3cbcfc","#0078f8","#0000fc","#b8a8f8","#6844fc","#4428bc","#f8b8f8","#d874cc","#943ca4","#50287c"],
+"MSX": ["#000000","#3eb849","#74d07d","#5955e0","#7e76f0","#b65ae6","#e65ce6","#000000","#e6e65c","#d4a01d","#e69e34","#e65a4c","#e63e3e","#3eb849","#00b0b0","#e0e0e0"],
+"C64": ["#000000","#ffffff","#880000","#aa8800","#008800","#448844","#000088","#4444aa","#884488","#aacc44","#88cc88","#aaff88","#44ccdd","#88cccc","#aaaacc","#ccaacc"],
+"ZX Spectrum": ["#000000","#0000d7","#d70000","#d700d7","#00d700","#00d7d7","#d7d700","#d7d7d7","#000000","#0000ff","#ff0000","#ff00ff","#00ff00","#00ffff","#ffff00","#ffffff"],
+"Atari 2600": ["#000000","#1a1a1a","#555555","#888888","#aaaaaa","#cecece","#eeeeee","#ffffff","#8a360f","#bd5836","#c68354","#daa47b","#eccead","#000000","#000000","#000000"],
+"Sega Master": ["#000000","#550000","#aa0000","#ff0000","#005500","#555500","#aa5500","#ff5500","#00aa00","#55aa00","#aaaa00","#ffaa00","#00ff00","#55ff00","#aaff00","#ffff00"],
+"PC-98": ["#000000","#000044","#000088","#0000cc","#004400","#004444","#004488","#0044cc","#008800","#008844","#008888","#0088cc","#00cc00","#00cc44","#00cc88","#00cccc"],
+},
+"Classic": {
+"AAP-64": ["#0c0c0c","#282828","#404040","#5c5c5c","#787878","#949494","#b0b0b0","#c8c8c8","#e0e0e0","#f8f8f8","#381010","#54382c","#705c4c","#8c7c6c","#382828","#4c4438"],
+"Sweetie 16": ["#1a1c2c","#5d275d","#b13e53","#ef7d57","#ffcd75","#a7f070","#38b764","#257179","#29366f","#3b5dc9","#41a6f6","#73eff7","#f4f4f4","#94b0c2","#566c86","#333c57"],
+"ENDESGA 32": ["#2e222f","#3e3546","#625565","#966c6c","#ab947a","#694f62","#7f708a","#9babb2","#c7dcd0","#ffffff","#6e2727","#b33831","#ea4f36","#f57d4a","#ae2334","#e23b3b"],
+"Resurrect 32": ["#000000","#222222","#444444","#666666","#888888","#aaaaaa","#cccccc","#eeeeee","#0f0f1a","#1f1f3a","#2f2f5a","#3f3f7a","#4f4f9a","#5f5fba","#6f6fda","#7f7ffa"],
+"ADG 16": ["#24201a","#3c3026","#5c4436","#7e5c46","#a07456","#b88866","#ce9c76","#e4b08a","#fcca9e","#fcdcaa","#fce8b6","#fcf4c2","#fcfcd2","#fcfce0","#fcfcee","#fcfcfc"],
+"Pebble 8": ["#1b1f38","#512b4c","#8e3b46","#c56544","#ce9c64","#8fc27e","#56ab7a","#20806e"],
+"Bubblegum 16": ["#0d0d2b","#2b1b3d","#5b2d4e","#8f3b4e","#c75c4e","#e8925e","#fab87e","#fce8ae","#fcfcfc","#d9b8c4","#a8809e","#78546a","#4a3048","#ffa6c5","#ff6e9d","#ff3075"],
+"Steamlord": ["#0a0a0a","#1d2b2e","#3c4a4c","#647073","#919b9d","#bcc4c5","#e2e6e7","#ffffff","#245156","#439ba4","#6fc7d1","#b5e3e8","#63713a","#96aa5b","#c1cf81","#dbe4ac"],
+"Matriax": ["#0e0e0e","#1d1d1d","#302828","#4b3838","#6b4744","#8a5a54","#a87169","#c58c82","#e0a9a0","#f5c8c0","#442b34","#5e3e4c","#7c5568","#9b7085","#bb90a3","#dab3c2"],
+"Slime 8": ["#0f1209","#1f2b18","#2e4a21","#477a2e","#66ab3a","#95d664","#bee87a","#def0ae"],
+},
+"Game Themes": {
+"Forest": ["#0a1a0a","#1a3a1a","#2a5a2a","#3a7a3a","#4a9a4a","#5aba5a","#7ada7a","#9afa9a","#3a2a1a","#5a4a2a","#7a6a3a","#9a8a5a","#1a1a3a","#2a2a5a","#3a3a7a","#4a4a9a"],
+"Ocean": ["#001a2a","#003a4a","#005a6a","#007a8a","#009aaa","#00baca","#00daea","#00faff","#002a1a","#004a3a","#006a5a","#008a7a","#001a3a","#002a5a","#003a7a","#004a9a"],
+"Desert": ["#1a1008","#3a2818","#5a3c28","#7a5038","#9a6448","#ba7858","#da8c68","#faa078","#5a4a2a","#7a6a3a","#9a8a4a","#baaa5a","#3a2a1a","#5a3a1a","#7a4a1a","#9a5a1a"],
+"Cave": ["#080808","#151015","#222022","#353035","#484048","#5b505b","#6e606e","#817081","#101520","#202a40","#304060","#405580","#1a0a0a","#3a1515","#5a2020","#7a3030"],
+"Lava": ["#1a0a00","#3a1500","#5a2000","#7a3000","#9a4000","#ba5000","#da6000","#fa7000","#3a1a00","#5a2a00","#7a3a00","#9a4a00","#5a0000","#8a0000","#ba0000","#fa0000"],
+"Snow": ["#1a1a2a","#2a2a3a","#3a3a4a","#4a4a5a","#6a6a7a","#8a8a9a","#aaaaba","#cacada","#eaeaea","#f4f4f4","#fafafa","#ffffff","#8aaa9a","#aacaba","#caeada","#eafafa"],
+"Night": ["#050510","#0a0a20","#101030","#151540","#1a1a50","#1f1f60","#242470","#292980","#1a1030","#2a1a50","#3a2070","#4a3090","#0a0a1a","#10102a","#15153a","#20204a"],
+"Dungeon": ["#0a0806","#1a1410","#2a2018","#3a2c20","#4a3828","#5a4430","#6a5038","#7a5c40","#2a1a10","#3a2a18","#4a3a20","#5a4a28","#1a0a0a","#2a1515","#3a2020","#4a2a2a"],
+"Space": ["#05050f","#0a0a1f","#0f0f2f","#14143f","#19194f","#1e1e5f","#23236f","#28287f","#1a0a2a","#2a154a","#3a206a","#4a308a","#0a1a2a","#10304a","#15406a","#1a558a"],
+"Cyberpunk": ["#0a001a","#20003a","#3a005a","#50007a","#6a009a","#8000ba","#9a00da","#b000fa","#001a2a","#003a4a","#005a6a","#007a8a","#00aa00","#00dd00","#44ff44","#88ff88"],
+},
+"Nature": {
+"Earth": ["#2a1a0a","#3a2a14","#4a3a1e","#5a4a28","#6a5a32","#7a6a3c","#8a7a46","#9a8a50","#1a2a1a","#2a3a2a","#3a4a3a","#4a5a4a","#1a1a2a","#2a2a3a","#3a3a4a","#4a4a5a"],
+"Autumn": ["#1a0a00","#3a1500","#5a2000","#7a2b00","#9a3600","#ba4100","#da4c00","#fa5700","#2a1a00","#4a2a00","#6a3a00","#8a4a00","#1a2a0a","#2a4a1a","#3a6a2a","#4a8a3a"],
+"Spring": ["#1a2a0a","#2a4a1a","#3a6a2a","#4a8a3a","#5aaa4a","#6aca5a","#8aea6a","#aaff7a","#2a1a2a","#4a2a3a","#6a3a4a","#8a4a5a","#1a0a1a","#3a1a3a","#5a2a5a","#7a3a7a"],
+"Summer": ["#0a1a00","#1a3a00","#2a5a00","#3a7a00","#4a9a00","#5aba00","#7ada44","#9afa88","#1a1a00","#3a3a00","#5a5a00","#7a7a00","#0a1a1a","#1a3a3a","#2a5a5a","#3a7a7a"],
+"Winter": ["#0a0a1a","#1a1a3a","#2a2a5a","#3a3a7a","#4a4a9a","#5a5aba","#7a7ada","#9a9afa","#1a1a2a","#2a2a3a","#3a3a4a","#4a4a5a","#0a1010","#1a2020","#2a3030","#3a4040"],
+"Tropical": ["#0a2a0a","#1a4a1a","#2a6a2a","#3a8a3a","#4aaa4a","#5aca5a","#7aea7a","#9aff9a","#0a2a2a","#1a4a4a","#2a6a6a","#3a8a8a","#2a1a0a","#4a2a1a","#6a3a2a","#8a4a3a"],
+},
+"Moody": {
+"Vintage": ["#1a1410","#2a221c","#3a3028","#4a3e34","#5a4c40","#6a5a4c","#7a6858","#8a7664","#9a8470","#aa927c","#baa088","#caae94","#2a1a10","#3a2818","#4a3420","#5a4028"],
+"Horror": ["#050505","#0f0808","#1a0f0f","#251515","#301c1c","#402525","#503030","#603a3a","#0a0510","#150a20","#200f30","#2a1540","#1a0a00","#2a1500","#3a2000","#452a00"],
+"Dreamy": ["#1a1020","#2a1a35","#3a254a","#4a3060","#5a3b75","#6a468a","#7a519f","#8a5cb5","#2a2030","#3a3045","#4a4060","#5a5075","#1a2030","#253045","#304060","#3a5075"],
+"Sepia": ["#1a1410","#2a2218","#3a3020","#4a3e28","#5a4c30","#6a5a38","#7a6840","#8a7648","#9a8450","#aa9258","#baa060","#caae68","#100a05","#201510","#302015","#402a1a"],
+"Noir": ["#050505","#121212","#1f1f1f","#2c2c2c","#393939","#464646","#535353","#606060","#6d6d6d","#7a7a7a","#878787","#949494","#0a0a0a","#1a1a1a","#2a2a2a","#3a3a3a"],
+"Pastel": ["#1a1a2a","#2a2a4a","#3a3a6a","#4a4a8a","#5a5aaa","#6a6aca","#7a7aea","#8a8aff","#3a2a3a","#5a3a5a","#7a4a7a","#9a5a9a","#2a3a2a","#4a5a4a","#6a7a6a","#8a9a8a"],
+"Neon": ["#0a0a1a","#1a003a","#2a005a","#3a0080","#4a00aa","#5a00d0","#6a00fa","#8a40ff","#001a1a","#003a3a","#005a5a","#008a8a","#00aa00","#44dd00","#88ff44","#ccff88"],
+"Vaporwave": ["#0a0a2a","#1a1050","#2a1a80","#3a25aa","#4a30d0","#5a3bfa","#7a5aff","#9a7aff","#1a0030","#3a0050","#5a0070","#7a0090","#0a2a1a","#1a4a3a","#2a6a5a","#3a8a7a"],
+"Midnight": ["#050510","#0a0a20","#0f0f2a","#14143a","#19194a","#1e1e5a","#23236a","#28287a","#101020","#1a1a30","#242440","#2e2e50","#0a0a1a","#14142a","#1a1a3a","#24244a"],
+"Sunset": ["#0a001a","#1a0040","#2a0060","#3a0080","#4a00a0","#5a00c0","#7a20e0","#9a50fa","#1a0a00","#3a1500","#5a2000","#7a3000","#2a0000","#4a0000","#6a1515","#8a3030"],
+},
+"Skin & Fantasy": {
+"Skin Light": ["#fce8d0","#f0d0b8","#e0b898","#c8a07c","#b08864","#987050","#806040","#685034"],
+"Skin Medium": ["#c89264","#b07850","#987040","#806038","#685028","#504820","#403818","#302810"],
+"Skin Dark": ["#684028","#583820","#483018","#382810","#282010","#201808","#181008","#100808"],
+"Fantasy Green": ["#a8e8a0","#80c878","#58b050","#389838","#288028","#1a681a","#105010","#083808"],
+"Fantasy Blue": ["#a0c8f0","#78a8d8","#5088c0","#3870a8","#285890","#1a4078","#103060","#082048"],
+"Fantasy Purple": ["#c8a0e8","#a878d0","#8850b8","#6838a0","#502888","#382070","#281858","#181040"],
+"Fantasy Red": ["#f0a088","#d88068","#c06050","#a84838","#903028","#782018","#601810","#481008"],
+"Fantasy Ice": ["#e0f8ff","#b8f0ff","#90e0f8","#68c8f0","#48a8e0","#3080c8","#2060a8","#184888"],
+},
+"Mono & Dual": {
+"Grayscale 10": ["#000000","#1c1c1c","#383838","#545454","#707070","#8c8c8c","#a8a8a8","#c4c4c4","#e0e0e0","#fcfcfc"],
+"Sepia Tone": ["#1a1408","#2a2210","#3a3018","#4a3e20","#5a4c28","#6a5a30","#7a6838","#8a7640","#9a8448","#aa9250"],
+"Blue Steel": ["#050a14","#0a1428","#0f1e3c","#142850","#193264","#1e3c78","#23468c","#2850a0","#2d5ab4","#3264c8"],
+"Amber": ["#1a0e00","#2a1c00","#3a2a00","#4a3800","#5a4600","#6a5400","#7a6200","#8a7000","#9a7e00","#aa8c00"],
+"Terminal Green": ["#001a00","#002e00","#004200","#005600","#006a00","#007e00","#009200","#00a600","#00ba00","#00ce00"],
+"Rose": ["#1a0a0a","#2a1015","#3a1820","#4a2028","#5a2830","#6a3038","#7a3840","#8a4048","#9a4850","#aa5058"],
+"Lavender": ["#0a0515","#150a2a","#200f40","#2a1455","#35196a","#401e80","#4a2395","#5528aa","#602dc0","#6a32d5"],
+"Peach": ["#1a0a05","#2a150d","#3a2015","#4a2a1d","#5a3525","#6a402d","#7a4b35","#8a563d","#9a6145","#aa6c4d"],
+},
+"UI & Access": {
+"High Contrast": ["#000000","#ffffff","#ff0000","#00ff00","#0000ff","#ffff00","#00ffff","#ff00ff","#000000","#ffffff","#ff4444","#44ff44","#4444ff","#ffff44","#44ffff","#ff44ff"],
+"Deuteranopia": ["#000000","#ffffff","#0077bb","#33bbee","#ee7733","#ccbb44","#ee3377","#bbbbbb","#333333","#777777","#005588","#2288aa","#cc5500","#aa8800","#cc2266","#888888"],
+"Protanopia": ["#000000","#ffffff","#0055aa","#33bbff","#eeaa00","#cc8844","#ee44aa","#bbbbbb","#333333","#777777","#004488","#2288cc","#cc7700","#aa6622","#cc3388","#888888"],
+"Tritanopia": ["#000000","#ffffff","#ff4488","#ff88aa","#00bbcc","#44ccdd","#cc4477","#bbbbbb","#333333","#777777","#cc2266","#ff6688","#008899","#228899","#aa2255","#888888"],
+"Game UI": ["#000000","#ffffff","#e03030","#f0a030","#40c040","#3030f0","#a040e0","#70d0d0","#888888","#b0b0b0","#d0d0d0","#f0f0f0","#1a1a1a","#3a3a3a","#5a5a5a","#7a7a7a"],
+},
+};
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const hexToRgb = h => ({r:parseInt(h.slice(1,3),16),g:parseInt(h.slice(3,5),16),b:parseInt(h.slice(5,7),16)});
+const rgbToHex = (r,g,b) => '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const rgb2hsv = (r,g,b) => { r/=255; g/=255; b/=255; const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn; let h=0; if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; } h*=60; if(h<0)h+=360; return [h, mx?d/mx:0, mx]; };
+const hsv2rgb = (h,s,v) => { h/=360; const i=Math.floor(h*6), f=h*6-i, p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s); let r,g,b; if(i%6===0){r=v;g=t;b=p}else if(i%6===1){r=q;g=v;b=p}else if(i%6===2){r=p;g=v;b=t}else if(i%6===3){r=p;g=q;b=v}else if(i%6===4){r=t;g=p;b=v}else{r=v;g=p;b=q} return [Math.round(r*255),Math.round(g*255),Math.round(b*255)]; };
+const shadeColor = (hex, dl) => { const {r,g,b}=hexToRgb(hex); const [h,s,v]=rgb2hsv(r,g,b); return rgbToHex(...hsv2rgb(h,s,clamp(v+dl,0,1))); };
+
+// ─── COMPLETE SPECTRUM PALETTE GENERATOR ─────────────────────────────────
+function hslToRgb(h, s, l) {
+    s/=100; l/=100;
+    const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2;
+    let r,g,b;
+    if(h<60){r=c;g=x;b=0}else if(h<120){r=x;g=c;b=0}else if(h<180){r=0;g=c;b=x
+    }else if(h<240){r=0;g=x;b=c}else if(h<300){r=x;g=0;b=c}else{r=c;g=0;b=x}
+    return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+function genRamp(hue, sat, steps, minL=6, maxL=92) {
+    const cols=[];
+    for(let i=0;i<steps;i++) {
+        const l = minL + (maxL-minL) * i / Math.max(1,steps-1);
+        const [r,g,b] = hslToRgb(hue, sat, l);
+        cols.push(rgbToHex(r,g,b));
+    }
+    return cols;
+}
+function buildPal(name, ramps) {
+    const cols=[];
+    for(const r of ramps) cols.push(...genRamp(r[0],r[1],r[2],r[3]||6,r[4]||92));
+    return cols;
+}
+const COMPLETE_PALETTES = {
+"Value Spectrum": {
+"Warm Balance": buildPal("",[[0,80,6],[25,90,6],[45,85,5],[15,55,5],[0,0,7]]),
+"Cool Balance": buildPal("",[[200,70,6],[220,85,6],[260,60,5],[180,50,5],[0,0,7]]),
+"High Contrast": buildPal("",[[0,90,4,4,96],[30,100,4,4,96],[220,90,4,4,96],[120,80,4,4,96],[0,0,8,2,98]]),
+"Low Contrast": buildPal("",[[0,30,6,15,85],[30,35,6,15,85],[200,25,6,15,85],[120,20,5,15,85],[0,0,6,15,85]]),
+"Golden Warmth": buildPal("",[[40,90,7],[30,70,6],[20,50,5],[50,60,5],[0,0,6]]),
+"Icy Cool": buildPal("",[[200,40,7],[220,60,6],[180,30,5],[260,35,5],[0,0,6]]),
+"Emerald Forest": buildPal("",[[120,80,7],[140,60,6],[100,50,5],[160,40,5],[0,0,6]]),
+"Crimson Night": buildPal("",[[0,85,7],[350,70,6],[10,60,5],[340,50,5],[0,0,7]]),
+"Sapphire Deep": buildPal("",[[220,85,7],[240,70,6],[200,60,5],[260,50,5],[0,0,6]]),
+"Amethyst Glow": buildPal("",[[280,75,7],[270,60,6],[290,50,5],[260,40,5],[0,0,6]]),
+},
+"Value Spectrum 2": {
+"Sun Bleached": buildPal("",[[50,80,7],[45,60,6],[30,40,5],[55,50,5],[0,0,6,10,98]]),
+"Moon Shadow": buildPal("",[[210,50,7],[230,40,6],[250,30,5],[190,35,5],[0,0,7,4,90]]),
+"Coral Reef": buildPal("",[[10,85,6],[180,70,6],[40,70,5],[220,50,5],[0,0,6]]),
+"Volcanic Ash": buildPal("",[[0,15,6,8,88],[30,20,6,8,88],[260,10,5,8,88],[0,0,8,4,96]]),
+"Moss & Stone": buildPal("",[[110,50,6],[80,40,6],[40,30,5],[30,25,5],[0,0,6]]),
+"Honey Glow": buildPal("",[[45,95,7],[35,75,6],[25,60,5],[50,70,5],[0,0,6]]),
+"Arctic Blues": buildPal("",[[195,80,7],[210,65,6],[185,55,5],[160,45,5],[0,0,6]]),
+"Cherry Blossom": buildPal("",[[340,60,6],[350,40,5],[120,30,5],[200,20,4],[0,0,6]]),
+"Midnight Galaxy": buildPal("",[[240,80,6,4,80],[270,70,5,4,80],[300,50,4,4,80],[220,60,5,4,80],[0,0,7,2,90]]),
+"Desert Dusk": buildPal("",[[30,80,6],[20,60,5],[350,40,4],[260,30,4],[0,0,6]]),
+},
+"Value Spectrum 3": {
+"Rose Garden": buildPal("",[[340,75,6],[350,55,5],[330,45,5],[10,40,4],[0,0,6]]),
+"Deep Ocean": buildPal("",[[210,85,6,4,88],[230,75,5,4,85],[195,65,5,4,85],[180,50,4,4,80],[0,0,7,2,92]]),
+"Sunrise": buildPal("",[[10,90,5],[30,95,5],[50,85,5],[260,50,4],[0,0,6]]),
+"Forest Floor": buildPal("",[[120,70,6],[90,50,5],[30,60,5],[15,40,4],[0,0,6]]),
+"Lavender Fields": buildPal("",[[270,60,6],[280,45,5],[290,35,5],[250,30,4],[0,0,6]]),
+"Tangerine Dream": buildPal("",[[25,95,6],[35,85,5],[15,75,5],[45,65,4],[0,0,6]]),
+"Frostbite": buildPal("",[[200,50,6,6,94],[220,40,5,6,92],[180,30,5,6,90],[160,20,4,6,90],[0,0,7,4,96]]),
+"Dragonfire": buildPal("",[[0,95,6],[20,100,5],[40,90,4],[60,80,4],[0,0,7,2,90]]),
+"Tropical Lagoon": buildPal("",[[180,80,6],[160,70,5],[200,60,5],[120,50,4],[0,0,6]]),
+"Autumn Blaze": buildPal("",[[20,90,6],[40,85,5],[0,80,5],[350,70,4],[0,0,6]]),
+},
+};
+
+// Merge generated palettes into main PALETTES
+for (const [cat, pals] of Object.entries(COMPLETE_PALETTES)) {
+    if (!PALETTES[cat]) PALETTES[cat] = {};
+    Object.assign(PALETTES[cat], pals);
+}
+
+const CATEGORIES = Object.keys(PALETTES);
+const FLAT_PALETTES = {};
+for (const cat of CATEGORIES) for (const [name, cols] of Object.entries(PALETTES[cat])) FLAT_PALETTES[name] = cols;
+
+// ─── SHAPE DRAWING ────────────────────────────────────────────────────────────
+function drawShape(ctx, x1, y1, x2, y2, tool, color, brushSize) {
+    const bw = Math.max(1, Math.floor(brushSize));
+    const half = Math.floor(bw/2);
+    ctx.fillStyle = color;
+    switch(tool) {
+        case 'line': {
+            const dx=Math.abs(x2-x1), dy=Math.abs(y2-y1);
+            const sx=x1<x2?1:-1, sy=y1<y2?1:-1;
+            let err=dx-dy;
+            while(true) {
+                ctx.fillRect(x1-half, y1-half, bw, bw);
+                if(x1===x2 && y1===y2) break;
+                const e2=2*err;
+                if(e2>-dy) { err-=dy; x1+=sx; }
+                if(e2<dx) { err+=dx; y1+=sy; }
+            }
+            break;
+        }
+        case 'rect': {
+            const mx=Math.min(x1,x2), Mx=Math.max(x1,x2);
+            const my=Math.min(y1,y2), My=Math.max(y1,y2);
+            for(let x=mx; x<=Mx; x++) for(let y=my; y<=My; y++) ctx.fillRect(x,y,1,1);
+            break;
+        }
+        case 'rect_outline': {
+            const mx=Math.min(x1,x2), Mx=Math.max(x1,x2);
+            const my=Math.min(y1,y2), My=Math.max(y1,y2);
+            ctx.fillStyle = color;
+            ctx.fillRect(mx, my, Mx-mx+1, My-my+1);
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillRect(mx+1, my+1, Mx-mx-1, My-my-1);
+            ctx.globalCompositeOperation = 'source-over';
+            break;
+        }
+        case 'circle': {
+            const cx=(x1+x2)/2, cy=(y1+y2)/2, rx=Math.abs(x2-x1)/2, ry=Math.abs(y2-y1)/2;
+            for(let x=Math.floor(cx-rx); x<=Math.ceil(cx+rx); x++) {
+                for(let y=Math.floor(cy-ry); y<=Math.ceil(cy+ry); y++) {
+                    if(((x-cx)/rx)**2+((y-cy)/ry)**2<=1) ctx.fillRect(x,y,1,1);
+                }
+            }
+            break;
+        }
+        case 'circle_outline': {
+            const cx=(x1+x2)/2, cy=(y1+y2)/2, rx=Math.abs(x2-x1)/2, ry=Math.abs(y2-y1)/2;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, Math.max(0, rx-1), Math.max(0, ry-1), 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            break;
+        }
+        case 'fill': {
+            const w=ctx.canvas.width, h=ctx.canvas.height;
+            const d=ctx.getImageData(0,0,w,h);
+            const src=d.data;
+            const idx=(y1*w+x1)*4;
+            const tr=src[idx], tg=src[idx+1], tb=src[idx+2], ta=src[idx+3];
+            const cr=parseInt(color.slice(1,3),16), cg=parseInt(color.slice(3,5),16), cb=parseInt(color.slice(5,7),16);
+            if(tr===cr&&tg===cg&&tb===cb) return;
+            const stack=[[x1,y1]];
+            const visited=new Uint8Array(w*h);
+            while(stack.length) {
+                const [px,py]=stack.pop();
+                if(px<0||px>=w||py<0||py>=h) continue;
+                const i=(py*w+px);
+                if(visited[i]) continue;
+                visited[i]=1;
+                const di=i*4;
+                if(src[di]===tr&&src[di+1]===tg&&src[di+2]===tb) {
+                    src[di]=cr; src[di+1]=cg; src[di+2]=cb; src[di+3]=255;
+                    stack.push([px-1,py],[px+1,py],[px,py-1],[px,py+1]);
+                }
+            }
+            ctx.putImageData(d,0,0);
+            break;
+        }
+    }
+}
+
+// ─── FRAME STORAGE ────────────────────────────────────────────────────────────
+function frameToData(canvas) {
+    return canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);
+}
+function dataToFrame(canvas, data) {
+    canvas.getContext('2d').putImageData(data,0,0);
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+function App() {
+    const [sourceImage, setSourceImage] = useState(null);
+    const [res, setRes] = useState(64); const [docW, setDocW] = useState(64); const [docH, setDocH] = useState(64);
+    const [colorLevels, setColorLevels] = useState(32);
+    const [exportScale, setExportScale] = useState(1);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [palette, setPalette] = useState(PALETTES["Retro Console"]["Pico-8"]);
+    const [selectedColor, setSelectedColor] = useState('#ffffff');
+    // ─── Color log: tracks every color used, in order ───
+    const [colorLog, setColorLog] = useState([]);
+    const pickColor = (c) => { setSelectedColor(c); setColorLog(prev => [...prev, c].slice(-64)); };
+    const [tool, setTool] = useState('pencil');
+    const [brushSize, setBrushSize] = useState(1);
+    const [zoom, setZoom] = useState(100);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [drawOrigin, setDrawOrigin] = useState(null);
+
+    // Animation
+    const [frames, setFrames] = useState([]);
+    const [currentFrame, setCurrentFrame] = useState(0);
+    const [fps, setFps] = useState(8);
+    const [playing, setPlaying] = useState(false);
+    const [loop, setLoop] = useState(true);
+    const [onionSkin, setOnionSkin] = useState(true);
+
+    // Effect brush (ported from the Editor)
+    const [effectType, setEffectType] = useState('hue');
+    const [effectStrength, setEffectStrength] = useState(0.28);
+    const [effectSpread, setEffectSpread] = useState(8);
+    const [hueShift, setHueShift] = useState(30);
+    const [frameDurations, setFrameDurations] = useState([]);
+
+    // Undo per frame
+    const [undoStack, setUndoStack] = useState([]);
+    const [redoStack, setRedoStack] = useState([]);
+
+    const [showSave, setShowSave] = useState(false);
+    const [saveName, setSaveName] = useState('sprite');
+    const [exportFormat, setExportFormat] = useState('spritesheet');
+    const [showPalettes, setShowPalettes] = useState(true);
+    const [paletteSearch, setPaletteSearch] = useState('');
+    const [activePaletteCat, setActivePaletteCat] = useState("Retro Console");
+
+
+    const canvasRef = useRef(null);
+    const animRef = useRef(null);
+    const fileRef = useRef(null);
+
+    // ─── Canvas init ──────────────────────────────────────────────────────
+    
+  window.__ppLoadCanvas = (dataUrl) => {
+    if (!dataUrl) return;
+    const img = new Image();
+    img.onload = () => {
+       const nw = img.width || 64; const nh = img.height || 64;
+       setDocW(nw); setDocH(nh);
+       const c = canvasRef.current;
+       if (c) {
+           c.width = nw; c.height = nh;
+           const ctx = c.getContext('2d');
+           ctx.clearRect(0,0,nw,nh);
+           ctx.drawImage(img,0,0,nw,nh);
+           const idata = ctx.getImageData(0,0,nw,nh);
+           setFrames([idata]);
+           setCurrentFrame(0);
+           setUndoStack([]); setRedoStack([]);
+       }
+    };
+    img.src = dataUrl;
+  };
+
+  useEffect(() => {
+        const c = canvasRef.current;
+        if (!c) return;
+        c.width = docW;
+        c.height = docH;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0,0,docW,docH);
+        if (frames.length === 0) saveFrameState();
+    }, [res]);
+
+    // ─── Animation loop ───────────────────────────────────────────────────
+    useEffect(() => {
+        if (!playing) { if (animRef.current) clearInterval(animRef.current); return; }
+        const dur = 1000 / fps;
+        animRef.current = setInterval(() => {
+            setCurrentFrame(prev => {
+                const next = prev + 1;
+                if (next >= frames.length) { if (loop) return 0; else { setPlaying(false); return prev; } }
+                return next;
+            });
+        }, dur);
+        return () => clearInterval(animRef.current);
+    }, [playing, fps, frames.length, loop]);
+
+    // ─── Frame switching ──────────────────────────────────────────────────
+    useEffect(() => {
+        const c = canvasRef.current;
+        if (!c || frames.length === 0) return;
+        if (currentFrame < frames.length) dataToFrame(c, frames[currentFrame]);
+    }, [currentFrame]);
+
+    // ─── Mouse-wheel zoom on canvas ──────────────────────────────────────
+    const handleWheel = (e) => {
+        if (e.ctrlKey || e.metaKey || !canvasRef.current) return;
+        if (e.target === canvasRef.current || (e.target.closest && e.target.closest('.canvas-container'))) {
+            e.preventDefault();
+            setZoom(z => Math.max(25, Math.min(1000, z + (e.deltaY < 0 ? 25 : -25))));
+        }
+    };
+    useEffect(() => {
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        return () => window.removeEventListener('wheel', handleWheel);
+    }, []);
+
+    // ─── Import photo ─────────────────────────────────────────────────────
+    const handleUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+                setSourceImage(img);
+                processPhoto(img);
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const processPhoto = (img) => {
+        setIsProcessing(true);
+        setTimeout(() => {
+            const c = canvasRef.current;
+            const aspect = img.height / img.width;
+            const th = Math.round(res * aspect);
+            c.width = res;
+            c.height = Math.max(res, th);
+            const ctx = c.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, res, th);
+
+            if (colorLevels < 256) {
+                const d = ctx.getImageData(0,0,c.width,c.height);
+                const f = 255 / (colorLevels - 1);
+                for (let i=0; i<d.data.length; i+=4) {
+                    d.data[i]=Math.round(d.data[i]/f)*f;
+                    d.data[i+1]=Math.round(d.data[i+1]/f)*f;
+                    d.data[i+2]=Math.round(d.data[i+2]/f)*f;
+                    d.data[i+3]=d.data[i+3]>127?255:0;
+                }
+                ctx.putImageData(d,0,0);
+            }
+            extractPalette(ctx, c.width, c.height);
+            saveFrameState();
+            setIsProcessing(false);
+        }, 50);
+    };
+
+    const extractPalette = (ctx, w, h) => {
+        const d = ctx.getImageData(0,0,w,h);
+        const counts = new Map();
+        for (let i=0; i<d.data.length; i+=4) {
+            if (d.data[i+3]<128) continue;
+            const hx = rgbToHex(d.data[i], d.data[i+1], d.data[i+2]);
+            counts.set(hx, (counts.get(hx)||0)+1);
+        }
+        const sorted = Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+        const pal = [];
+        for (const h of sorted) {
+            if (pal.length >= 32) break;
+            if (!pal.some(e => colorDist(h,e)<25)) pal.push(h);
+        }
+        if (pal.length<8) for (const h of sorted) { if (pal.length>=32) break; if (!pal.includes(h)) pal.push(h); }
+        if (pal.length) { setPalette(pal); pickColor(pal[0]); }
+    };
+
+    const colorDist = (a,b) => { const c1=hexToRgb(a),c2=hexToRgb(b); return Math.sqrt((c1.r-c2.r)**2+(c1.g-c2.g)**2+(c1.b-c2.b)**2); };
+
+    // ─── Frame management ─────────────────────────────────────────────────
+    const saveFrameState = () => {
+        const c = canvasRef.current;
+        if (!c) return;
+        const data = c.getContext('2d').getImageData(0,0,c.width,c.height);
+        setFrames(prev => {
+            const next = [...prev];
+            next[currentFrame >= next.length ? next.length-1 : currentFrame] = data;
+            return next;
+        });
+        setFrameDurations(prev => {
+            if (prev.length <= currentFrame) { const n=[...prev]; n[currentFrame]=n[currentFrame]||100; return n; }
+            return prev;
+        });
+    };
+
+    const addFrame = () => {
+        saveFrameState();
+        const c = canvasRef.current;
+        const data = c.getContext('2d').getImageData(0,0,c.width,c.height);
+        setFrames(prev => [...prev, data]);
+        setFrameDurations(prev => [...prev, 100]);
+        setCurrentFrame(prev => prev + 1);
+    };
+
+    const deleteFrame = (idx) => {
+        if (frames.length <= 1) return;
+        setFrames(prev => prev.filter((_,i)=>i!==idx));
+        setFrameDurations(prev => prev.filter((_,i)=>i!==idx));
+        setCurrentFrame(prev => Math.min(prev, frames.length-2));
+    };
+
+    const duplicateFrame = () => {
+        saveFrameState();
+        const c = canvasRef.current;
+        const data = c.getContext('2d').getImageData(0,0,c.width,c.height);
+        setFrames(prev => { const n=[...prev]; n.splice(currentFrame+1,0,data); return n; });
+        setFrameDurations(prev => { const n=[...prev]; n.splice(currentFrame+1,0,100); return n; });
+        setCurrentFrame(prev => prev+1);
+    };
+
+    const moveFrame = (from, to) => {
+        if (to<0||to>=frames.length) return;
+        setFrames(prev => { const n=[...prev]; const [m]=n.splice(from,1); n.splice(to,0,m); return n; });
+        setFrameDurations(prev => { const n=[...prev]; const [m]=n.splice(from,1); n.splice(to,0,m); return n; });
+    };
+
+    // ─── Drawing ──────────────────────────────────────────────────────────
+    const getPos = (e) => {
+        const c = canvasRef.current;
+        if (!c) return null;
+        const r = c.getBoundingClientRect();
+        const x = e.touches ? e.touches[0].clientX : e.clientX;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: Math.floor((x-r.left)*(c.width/r.width)), y: Math.floor((y-r.top)*(c.height/r.height)) };
+    };
+
+    const saveUndo = useCallback(() => {
+        const c = canvasRef.current;
+        if (!c) return;
+        const ctx = c.getContext('2d');
+        setUndoStack(prev => [...prev.slice(-29), ctx.getImageData(0,0,c.width,c.height)]);
+        setRedoStack([]);
+    }, []);
+
+    const drawAt = (p) => {
+        if (!p) return;
+        const c = canvasRef.current;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        const bw = Math.max(1, Math.floor(brushSize));
+        if (tool === 'pencil') {
+            ctx.fillStyle = selectedColor;
+            if (bw <= 1) ctx.fillRect(p.x, p.y, 1, 1);
+            else {
+                const half = Math.floor(bw/2);
+                if (brushSize <= 3) ctx.fillRect(p.x-half, p.y-half, bw, bw);
+                else {
+                    for (let dx=-half; dx<=half; dx++) for (let dy=-half; dy<=half; dy++) {
+                        if (dx*dx+dy*dy <= half*half) ctx.fillRect(p.x+dx, p.y+dy, 1, 1);
+                    }
+                }
+            }
+        } else if (tool === 'eraser') {
+            const half = Math.floor(bw/2);
+            for (let dx=-half; dx<=half; dx++) for (let dy=-half; dy<=half; dy++) {
+                ctx.clearRect(p.x+dx, p.y+dy, 1, 1);
+            }
+        } else if (tool === 'effect') {
+            applyEffectAt(p.x, p.y);
+        }
+    };
+
+    // ─── Effect brush (ported from the Editor) ───
+    const rgb2hsv=(r,g,b)=>{r/=255;g/=255;b/=255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;let h=0;if(d){if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h/=6;if(h<0)h+=1;}const s=mx?d/mx:0;return [h,s,mx];};
+    const hsv2rgb=(h,s,v)=>{const i=Math.floor(h*6),f=h*6-i;const p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);let r,g,b;switch(i%6){case 0:r=v,g=t,b=p;break;case 1:r=q,g=v,b=p;break;case 2:r=p,g=v,b=t;break;case 3:r=p,g=q,b=v;break;case 4:r=t,g=p,b=v;break;default:r=v,g=p,b=q;}return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];};
+
+    const applyEffectAt=(x,y)=>{
+        const c=canvasRef.current; if(!c)return;
+        const ctx=c.getContext('2d',{willReadFrequently:true});
+        const W=c.width,H=c.height;
+        const bw=Math.max(1,brushSize|0);
+        const half=Math.floor(bw/2);
+        const opaque=(xx,yy)=>{ if(xx<0||yy<0||xx>=W||yy>=H)return false; const dd=ctx.getImageData(xx,yy,1,1).data; return dd[3]>0; };
+        for(let dx=-half;dx<=half;dx++)for(let dy=-half;dy<=half;dy++){
+            if(dx*dx+dy*dy>half*half)continue;
+            const px=x+dx,py=y+dy;
+            if(px<0||py<0||px>=W||py>=H)continue;
+            const d=ctx.getImageData(px,py,1,1).data;
+            if(d[3]===0)continue;
+            let r=d[0],g=d[1],b=d[2],a=d[3];
+            if(effectType==='hue'){const hsv=rgb2hsv(r,g,b);hsv[0]=(hsv[0]+hueShift/360)%1;if(hsv[0]<0)hsv[0]+=1;const cc=hsv2rgb(hsv[0],hsv[1],hsv[2]);r=cc[0];g=cc[1];b=cc[2];}
+            else if(effectType==='bright'){const f=1+hueShift/100;r=Math.max(0,Math.min(255,Math.round(r*f)));g=Math.max(0,Math.min(255,Math.round(g*f)));b=Math.max(0,Math.min(255,Math.round(b*f)));}
+            else if(effectType==='desat'){const av=Math.round((r+g+b)/3);r=g=b=av;}
+            else if(effectType==='invert'){r=255-r;g=255-g;b=255-b;}
+            else if(effectType==='highlight'){const hsv=rgb2hsv(r,g,b);let h=hsv[0]+(hsv[1]>0.05?(effectSpread/360):0);if(h>=1)h-=1;const cc=hsv2rgb(h,hsv[1],Math.min(1,hsv[2]+effectStrength));r=cc[0];g=cc[1];b=cc[2];}
+            else if(effectType==='shadow'){const hsv=rgb2hsv(r,g,b);let h=hsv[0]-(hsv[1]>0.05?(effectSpread/360):0);if(h<0)h+=1;const cc=hsv2rgb(h,hsv[1],Math.max(0,hsv[2]-effectStrength));r=cc[0];g=cc[1];b=cc[2];}
+            else if(effectType==='outline'){const isEdge=opaque(px,py)&&!(opaque(px-1,py)&&opaque(px+1,py)&&opaque(px,py-1)&&opaque(px,py+1));if(!isEdge){a=0;}}
+            ctx.putImageData(new ImageData(new Uint8ClampedArray([r,g,b,a]),1,1),px,py);
+        }
+    };
+
+    const handleDown = (e) => {
+        if (e.touches) e.preventDefault();
+        const p = getPos(e);
+        if (!p) return;
+        if (e.button === 2 || e.button === 1) { // right / middle click = erase
+            const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+            saveUndo();
+            for (let dx=0; dx<brushSize; dx++) for (let dy=0; dy<brushSize; dy++) ctx.clearRect(p.x+dx, p.y+dy, 1, 1);
+            setIsDrawing(false);
+            return;
+        }
+        if (tool === 'eyedropper') {
+            const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+            const px = ctx.getImageData(p.x, p.y, 1, 1).data;
+            if (px[3] > 0) pickColor(rgbToHex(px[0], px[1], px[2]));
+            return;
+        }
+        if (['line','rect','rect_outline','circle','circle_outline','fill'].includes(tool)) {
+            saveUndo();
+            setDrawOrigin(p);
+            setIsDrawing(true);
+            if (tool === 'fill') {
+                drawShape(ctx=canvasRef.current.getContext('2d'), p.x, p.y, p.x, p.y, tool, selectedColor, brushSize);
+                setIsDrawing(false);
+            }
+            return;
+        }
+        saveUndo();
+        setIsDrawing(true);
+        drawAt(p);
+    };
+
+    const handleMove = (e) => {
+        if (e.touches) e.preventDefault();
+        const p = getPos(e);
+        if (!p) return;
+        if (isDrawing && ['line','rect','rect_outline','circle','circle_outline'].includes(tool) && drawOrigin) {
+            const c = canvasRef.current;
+            const ctx = c.getContext('2d');
+            // Restore from undo state (last in stack)
+            if (undoStack.length) ctx.putImageData(undoStack[undoStack.length-1], 0, 0);
+            drawShape(ctx, drawOrigin.x, drawOrigin.y, p.x, p.y, tool, selectedColor, brushSize);
+            return;
+        }
+        if (isDrawing) drawAt(p);
+    };
+
+    const handleUp = (e) => { if (e && e.touches) e.preventDefault(); setIsDrawing(false); setDrawOrigin(null); };
+
+    // ─── Palette selection ────────────────────────────────────────────────
+    const selectPalette = (name) => {
+        const colors = FLAT_PALETTES[name];
+        if (!colors) return;
+        setPalette(colors);
+        if (colors.length) pickColor(colors[0]);
+    };
+
+    // ─── Export ────────────────────────────────────────────────────────────
+    const handleExport = () => {
+        const c = canvasRef.current;
+        if (!c || frames.length === 0) return;
+        const scale = Number(exportScale);
+
+        if (exportFormat === 'gif' && frames.length > 1) {
+            exportGIF(scale);
+            return;
+        }
+        if (exportFormat === 'spritesheet' || frames.length === 1) {
+            exportSpritesheet(scale);
+            return;
+        }
+        exportPNG(scale);
+    };
+
+    const exportPNG = (scale) => {
+        const c = canvasRef.current;
+        saveFrameState();
+        const exp = document.createElement('canvas');
+        exp.width = c.width * scale;
+        exp.height = c.height * scale;
+        const ctx = exp.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(c, 0, 0, exp.width, exp.height);
+        download(exp.toDataURL('image/png'), saveName+'.png');
+        try{ parent.postMessage({type:'ADD_TO_HUB', dataURL: exp.toDataURL('image/png'), name: saveName+'.png'}, '*'); }catch(e){}
+        setShowSave(false);
+    };
+
+    const exportSpritesheet = (scale) => {
+        const cols = Math.ceil(Math.sqrt(frames.length));
+        const rows = Math.ceil(frames.length / cols);
+        const fw = canvasRef.current.width;
+        const fh = canvasRef.current.height;
+        const exp = document.createElement('canvas');
+        exp.width = fw * cols * scale;
+        exp.height = fh * rows * scale;
+        const ctx = exp.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        for (let i=0; i<frames.length; i++) {
+            const fx = (i % cols) * fw * scale;
+            const fy = Math.floor(i / cols) * fh * scale;
+            const tmp = document.createElement('canvas');
+            tmp.width = fw; tmp.height = fh;
+            tmp.getContext('2d').putImageData(frames[i], 0, 0);
+            ctx.drawImage(tmp, fx, fy, fw*scale, fh*scale);
+        }
+        download(exp.toDataURL('image/png'), saveName+'_spritesheet.png');
+        try{ parent.postMessage({type:'ADD_TO_HUB', dataURL: exp.toDataURL('image/png'), name: saveName+'_spritesheet.png'}, '*'); }catch(e){}
+        setShowSave(false);
+    };
+
+    const exportGIF = (scale) => {
+        // Use gif.js via CDN
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
+        script.onload = () => {
+            const fw = canvasRef.current.width;
+            const fh = canvasRef.current.height;
+            const gif = new GIF({ workers: 2, quality: 10, width: fw*scale, height: fh*scale });
+            for (let i=0; i<frames.length; i++) {
+                const tmp = document.createElement('canvas');
+                tmp.width = fw*scale; tmp.height = fh*scale;
+                const tCtx = tmp.getContext('2d');
+                tCtx.imageSmoothingEnabled = false;
+                const src = document.createElement('canvas');
+                src.width = fw; src.height = fh;
+                src.getContext('2d').putImageData(frames[i], 0, 0);
+                tCtx.drawImage(src, 0, 0, fw*scale, fh*scale);
+                gif.addFrame(tmp, { delay: frameDurations[i] || 100 });
+            }
+            gif.on('finished', (blob) => {
+                download(URL.createObjectURL(blob), saveName+'.gif');
+                const reader = new FileReader();
+                reader.onloadend = function() {
+                    try{ parent.postMessage({type:'ADD_TO_HUB', dataURL: reader.result, name: saveName+'.gif'}, '*'); }catch(e){}
+                };
+                reader.readAsDataURL(blob);
+            });
+            gif.render();
+        };
+        document.body.appendChild(script);
+        setShowSave(false);
+    };
+
+    const download = (url, name) => {
+        if(parent.window.__tauriSave) {
+            const ext = name.split('.').pop() || 'png';
+            parent.window.__tauriSave(url, name, ext);
+        }
+    };
+
+    // ─── Clear helpers ────────────────────────────────────────────────────
+    const clearCanvas = () => {
+        saveUndo();
+        const c = canvasRef.current;
+        c.getContext('2d').fillStyle = '#000';
+        c.getContext('2d').fillRect(0,0,c.width,c.height);
+        saveFrameState();
+    };
+
+    const undo = () => {
+        if (!undoStack.length) return;
+        const c = canvasRef.current;
+        const ctx = c.getContext('2d');
+        const cur = ctx.getImageData(0,0,c.width,c.height);
+        const prev = undoStack[undoStack.length-1];
+        setUndoStack(prev.slice(0,-1));
+        setRedoStack(r => [...r.slice(-29), cur]);
+        ctx.putImageData(prev,0,0);
+    };
+
+    const redo = () => {
+        if (!redoStack.length) return;
+        const c = canvasRef.current;
+        const ctx = c.getContext('2d');
+        const cur = ctx.getImageData(0,0,c.width,c.height);
+        const next = redoStack[redoStack.length-1];
+        setRedoStack(r => r.slice(0,-1));
+        setUndoStack(u => [...u.slice(-29), cur]);
+        ctx.putImageData(next,0,0);
+    };
+
+
+    const addFrameFromCanvas = (srcCanvas) => {
+        const c = canvasRef.current;
+        const nc = document.createElement('canvas');
+        nc.width = c.width; nc.height = c.height;
+        nc.getContext('2d').drawImage(srcCanvas, 0, 0, c.width, c.height);
+        const data = nc.getContext('2d').getImageData(0, 0, nc.width, nc.height);
+        setFrames(prev => {
+            const next = [...prev, data];
+            setCurrentFrame(next.length - 1);
+            return next;
+        });
+    };
+
+    // ─── Filtered palettes ────────────────────────────────────────────────
+    const filteredPalettes = useMemo(() => {
+        const result = {};
+        for (const [cat, pals] of Object.entries(PALETTES)) {
+            const filtered = Object.entries(pals).filter(([name]) =>
+                !paletteSearch || name.toLowerCase().includes(paletteSearch.toLowerCase())
+            );
+            if (filtered.length) result[cat] = Object.fromEntries(filtered);
+        }
+        return result;
+    }, [paletteSearch]);
+
+    return (
+        <div className="max-w-7xl mx-auto">
+            <header className="text-center mb-2 md:mb-4">
+                <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-500 to-teal-400">
+                    Pixel Forge Studio
+                </h1>
+                <p className="text-neutral-500 text-xs mt-0">pixel art · animation · sprite pipeline</p>
+            </header>
+
+          <div className="flex justify-center gap-4 mb-4 text-xs font-bold bg-neutral-800 p-2 rounded-lg w-max mx-auto border border-neutral-700">
+              <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Canvas Width:</span>
+                  <input type="number" value={docW} onChange={(e)=>setDocW(parseInt(e.target.value)||64)} className="w-16 bg-black text-white p-1 rounded border border-neutral-600 text-center" />
+              </div>
+              <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Canvas Height:</span>
+                  <input type="number" value={docH} onChange={(e)=>setDocH(parseInt(e.target.value)||64)} className="w-16 bg-black text-white p-1 rounded border border-neutral-600 text-center" />
+<button onClick={()=>{
+                      const c = canvasRef.current;
+                      c.width = docW;
+                      c.height = docH;
+                      const ctx = c.getContext('2d');
+                      ctx.fillStyle='#000'; ctx.fillRect(0,0,docW,docH);
+                      saveFrameState();
+                  }} className="text-[10px] px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-white ml-2">Apply</button>
+              </div>
+          </div>
+
+
+            {/* TOOLBAR */}
+            <div className="flex flex-wrap gap-1.5 items-center bg-neutral-800 border border-neutral-700 p-2 rounded-xl mb-3 toolbar-wrap">
+                <div className="flex gap-1 bg-neutral-900 rounded-lg p-0.5">
+                    {[['pencil','✏️'],['eraser','🧽'],['eyedropper','💉'],['fill','🪣'],['effect','🖌']].map(([t,icon]) => (
+                        <button key={t} onClick={()=>setTool(t)} className={`tool-btn ${tool===t?'active':''}`} title={t}>{icon} {t==='eyedropper'?'pick':(t==='effect'?'fx':t)}</button>
+                    ))}
+                </div>
+                <div className="w-px h-6 bg-neutral-700 mx-1 hidden md:block" />
+                <div className="flex gap-1 bg-neutral-900 rounded-lg p-0.5">
+                    {[['line','📏'],['rect','■'],['rect_outline','□'],['circle','●'],['circle_outline','○']].map(([t,icon]) => (
+                        <button key={t} onClick={()=>setTool(t)} className={`tool-btn ${tool===t?'active':''}`} title={t}>{icon} {t.includes('outline')?'Outl':(t==='line'?'Line':(t==='rect'?'Fill':(t==='circle'?'Fill':'Grid')))}</button>
+                    ))}
+                </div>
+                <div className="w-px h-6 bg-neutral-700 mx-1 hidden md:block" />
+                <div className="flex items-center gap-1">
+                    <span className="text-xs text-neutral-400">Brush</span>
+                    <select value={brushSize} onChange={e=>setBrushSize(Number(e.target.value))}
+                        className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs text-white">
+                        {[1,2,3,5,7,9].map(s=><option key={s} value={s}>{s}px{s===1?' •':' ••'}</option>)}
+                    </select>
+                </div>
+                <div className="flex items-center gap-1">
+                    <button onClick={()=>setZoom(Math.max(25,zoom-25))} className="tool-btn">−</button>
+                    <span className="text-xs font-mono w-10 text-center">{zoom}%</span>
+                    <button onClick={()=>setZoom(Math.min(1000,zoom+25))} className="tool-btn">+</button>
+                </div>
+                <div className="flex gap-1">
+                    <button onClick={undo} disabled={!undoStack.length} className="tool-btn" style={undoStack.length?{}:{opacity:.3}}>↩</button>
+                    <button onClick={redo} disabled={!redoStack.length} className="tool-btn" style={redoStack.length?{}:{opacity:.3}}>↪</button>
+                    <button onClick={clearCanvas} className="tool-btn text-red-400 hover:text-red-300">🗑️</button>
+                </div>
+                
+            
+            </div>
+
+            {tool==='effect' && (
+                <div className="flex flex-wrap gap-3 items-center bg-neutral-800 border border-neutral-700 p-2 rounded-xl mb-3 text-xs">
+                    <select value={effectType} onChange={e=>setEffectType(e.target.value)} className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-white">
+                        <option value="hue">Hue shift</option>
+                        <option value="bright">Brightness</option>
+                        <option value="desat">Desaturate</option>
+                        <option value="invert">Invert</option>
+                        <option value="highlight">Highlight</option>
+                        <option value="shadow">Shadow</option>
+                        <option value="outline">Outline</option>
+                    </select>
+                    {(effectType==='hue'||effectType==='bright') && (
+                        <label className="flex items-center gap-2 text-neutral-300">Amount
+                            <input type="range" min={effectType==='hue'?-180:0} max={effectType==='hue'?180:200} value={hueShift} onChange={e=>setHueShift(+e.target.value)} />
+                            <span className="w-8 text-right">{hueShift}</span>
+                        </label>
+                    )}
+                    {(effectType==='highlight'||effectType==='shadow') && (
+                        <label className="flex items-center gap-2 text-neutral-300">Intensity
+                            <input type="range" min={0.05} max={0.6} step={0.01} value={effectStrength} onChange={e=>setEffectStrength(+e.target.value)} />
+                            <span className="w-8 text-right">{effectStrength.toFixed(2)}</span>
+                        </label>
+                    )}
+                    <span className="text-neutral-500">Brush paints the effect onto existing pixels only.</span>
+                </div>
+            )}
+
+
+            {/* MAIN GRID */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                {/* CANVAS + TIMELINE */}
+                <div className="lg:col-span-8 flex flex-col gap-2">
+                    {/* Canvas */}
+                    <div className="bg-neutral-800 border border-neutral-700 rounded-2xl overflow-hidden relative shadow-xl bg-checkered flex items-center justify-center min-h-[40vh]">
+                        {!sourceImage && frames.length===0 && (
+                            <div className="text-center p-8">
+                                <div className="flex gap-4 justify-center mb-3">
+                                    <button onClick={()=>fileRef.current?.click()}
+                                        className="flex flex-col items-center gap-2 p-6 bg-neutral-700 hover:bg-neutral-600 rounded-xl">
+                                        <span className="text-3xl">📁</span>
+                                        <span className="font-bold">Upload Photo</span>
+                                    </button>
+                                </div>
+                                <input type="file" accept="image/*" ref={fileRef} onChange={handleUpload} className="hidden" />
+                                <p className="text-neutral-500 text-xs">Or draw directly with the tools above</p>
+                            </div>
+                        )}
+                        <div className="w-full h-full overflow-auto p-6 flex items-start justify-center">
+                            <canvas ref={canvasRef}
+                                style={{ width: `${Math.min(480, 480*zoom/100)}px`, imageRendering:'pixelated', backgroundColor:'transparent' }}
+                                className={`shadow-2xl border border-neutral-700 ${isProcessing?'opacity-40':'opacity-100'} ${tool==='eraser'?'cursor-cell':'cursor-crosshair'}`}
+                                onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}
+                                onTouchStart={handleDown} onTouchMove={handleMove} onTouchEnd={handleUp}
+                                onContextMenu={e=>e.preventDefault()} />
+                        </div>
+                        {isProcessing && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
+                                <span className="text-green-400 font-bold animate-pulse text-lg">Pixelating...</span>
+                            </div>
+                        )}
+                        {sourceImage && (
+                            <button onClick={()=>setSourceImage(null)}
+                                className="absolute top-3 right-3 px-2.5 py-1 bg-neutral-900/80 hover:bg-red-500/80 text-white rounded-lg text-xs z-20">
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    {/* TIMELINE */}
+                    <div className="bg-neutral-800 border border-neutral-700 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-neutral-400 uppercase">Frames</span>
+                                <span className="text-xs text-neutral-500">{frames.length}</span>
+                                <button onClick={addFrame} className="tool-btn text-xs !py-1 !px-2">+ Add</button>
+                                <button onClick={duplicateFrame} className="tool-btn text-xs !py-1 !px-2" disabled={!frames.length}>⧉ Dup</button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button onClick={()=>setPlaying(!playing)} className={`tool-btn text-xs !py-1 !px-3 ${playing?'bg-red-500 text-white':'bg-neutral-700'}`}>
+                                    {playing ? '⏹ Stop' : '▶ Play'}
+                                </button>
+                                <label className="text-xs text-neutral-400">FPS</label>
+                                <input type="number" min="1" max="60" value={fps} onChange={e=>setFps(Math.max(1,Math.min(60,Number(e.target.value))))}
+                                    className="w-12 bg-neutral-900 border border-neutral-700 rounded px-1 py-0.5 text-xs text-white text-center" />
+                                <label className="text-xs text-neutral-400 flex items-center gap-1">
+                                    <input type="checkbox" checked={loop} onChange={e=>setLoop(e.target.checked)} className="accent-green-500" /> Loop
+                                </label>
+                                <label className="text-xs text-neutral-400 flex items-center gap-1">
+                                    <input type="checkbox" checked={onionSkin} onChange={e=>setOnionSkin(e.target.checked)} className="accent-green-500" /> Onion
+                                </label>
+                            </div>
+                        </div>
+                        <div className="timeline flex gap-2 overflow-x-auto pb-1">
+                            {frames.map((data, idx) => (
+                                <div key={idx} className="flex flex-col items-center gap-1 shrink-0">
+                                    <div className="relative">
+                                        <canvas width={48} height={48}
+                                            ref={el => { if (el) { el.getContext('2d').putImageData(data,0,0); } }}
+                                            className={`frame-thumb w-12 h-12 rounded border-2 ${idx===currentFrame?'active':'border-neutral-700'}`}
+                                            onClick={() => { saveFrameState(); setCurrentFrame(idx); }}
+                                            style={{imageRendering:'pixelated'}} />
+                                        <button onClick={()=>deleteFrame(idx)}
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full text-[10px] leading-none text-white flex items-center justify-center hover:bg-red-400"
+                                            style={{display:frames.length>1?'':'none'}}>×</button>
+                                    </div>
+                                    <div className="flex gap-1 items-center">
+                                        <button onClick={()=>moveFrame(idx,idx-1)} className="text-[10px] text-neutral-500 hover:text-white px-0.5">◀</button>
+                                        <span className="text-[10px] text-neutral-500 font-mono">{idx+1}</span>
+                                        <button onClick={()=>moveFrame(idx,idx+1)} className="text-[10px] text-neutral-500 hover:text-white px-0.5">▶</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* RIGHT PANEL: PALETTES + EXPORT */}
+                <div className="lg:col-span-4 flex flex-col gap-3">
+                    {/* PALETTE */}
+                    <div className="bg-neutral-800 border border-neutral-700 rounded-xl p-3">
+                        <button onClick={()=>setShowPalettes(!showPalettes)}
+                            className="flex items-center gap-2 w-full text-left font-bold text-sm mb-2">
+                            <span>🎨</span> Palettes ({palette.length} colors) {showPalettes?'▼':'▶'}
+                        </button>
+                        {showPalettes && (
+                            <>
+                                <input type="text" value={paletteSearch} onChange={e=>setPaletteSearch(e.target.value)}
+                                    placeholder="Search palettes..."
+                                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-1.5 text-xs text-white mb-2 outline-none focus:border-green-500" />
+                                <div className="flex flex-wrap gap-1 mb-2">
+                                    {CATEGORIES.map(cat => (
+                                        <button key={cat} onClick={()=>setActivePaletteCat(cat)}
+                                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${activePaletteCat===cat?'bg-green-500 text-white':'bg-neutral-700 text-neutral-300 hover:bg-neutral-600'}`}>
+                                            {cat}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                    {Object.entries(filteredPalettes).map(([cat, pals]) => (
+                                        <div key={cat} style={{display: activePaletteCat!==cat && paletteSearch ? 'block' : activePaletteCat!==cat ? 'none' : 'block'}}>
+                                            <div className="text-[10px] text-neutral-500 font-bold uppercase mb-1">{cat}</div>
+                                            {Object.entries(pals).map(([name, colors]) => (
+                                                <div key={name} onClick={()=>selectPalette(name)}
+                                                    className={`palette-card rounded-lg p-1.5 mb-1 ${palette===colors?'active':''}`}>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-[11px] text-neutral-300">{name}</span>
+                                                        <span className="text-[9px] text-neutral-600">{colors.length}c</span>
+                                                    </div>
+                                                    <div className="flex gap-0.5 mt-0.5 flex-wrap">
+                                                        {colors.slice(0,16).map((c,i) => (
+                                                            <div key={i} className="w-3 h-3 rounded-sm" style={{backgroundColor:c}} title={c} />
+                                                        ))}
+                                                        {colors.length > 16 && <span className="text-[8px] text-neutral-600 ml-0.5">+{colors.length-16}</span>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* ACTIVE PALETTE SWATCHES */}
+                    <div className="bg-neutral-800 border border-neutral-700 rounded-xl p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                            <div className="w-6 h-6 rounded border border-neutral-500 shrink-0" style={{backgroundColor:selectedColor}} />
+                            <span className="text-xs font-mono text-neutral-400">{selectedColor}</span>
+                                <div className="flex gap-1 ml-auto">
+                                <button onClick={()=>pickColor(adjustColor(selectedColor,15))} className="text-[10px] px-1.5 py-0.5 bg-neutral-700 hover:bg-neutral-500 rounded font-medium">+L</button>
+                                <button onClick={()=>pickColor(adjustColor(selectedColor,-15))} className="text-[10px] px-1.5 py-0.5 bg-neutral-700 hover:bg-neutral-500 rounded font-medium">-D</button>
+                                <input type="color" value={selectedColor} onChange={e=>pickColor(e.target.value)} className="w-7 h-7 bg-transparent border border-neutral-600 rounded cursor-pointer p-0" title="Native color picker" />
+                            </div>
+                            {/* SHADE / HUE GRADIENT FINDER — pick nearby shades from the active color */}
+                            <div className="mt-2">
+                                <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">Shade Finder</div>
+                                <div className="grid gap-[2px]" style={{gridTemplateColumns:'repeat(9, 1fr)'}}>
+                                    {(() => {
+                                        const {r,g,b}=hexToRgb(selectedColor); const [h,s,v]=rgb2hsv(r,g,b);
+                                        const rows=[-0.30,-0.20,-0.10,0,0.10,0.20,0.30]; const hues=[-60,-40,-20,0,20,40,60,80,120];
+                                        return rows.flatMap(dl => hues.map(dh => {
+                                            const col = rgbToHex(...hsv2rgb((h+dh+360)%360, clamp(s + (dh?0.05*Math.sign(dh):0),0,1), clamp(v+dl,0,1)));
+                                            return <button key={dl+':'+dh} onClick={()=>pickColor(col)} title={`${col} (h${dh>0?'+':''}${dh}, l${dl>0?'+':''}${dl})`} className="w-full aspect-square rounded-sm border border-neutral-800 hover:border-white hover:z-10" style={{backgroundColor:col}} />;
+                                        }));
+                                    })()}
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <span className="text-[10px] text-neutral-500">Hue</span>
+                                    <input type="range" min="0" max="360" value={Math.round(rgb2hsv(...Object.values(hexToRgb(selectedColor)))[0]*360)} onChange={e=>{ const [h,s,v]=rgb2hsv(...Object.values(hexToRgb(selectedColor))); pickColor(rgbToHex(...hsv2rgb(+e.target.value/360,s,v))); }} className="flex-1" />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                            {palette.map((c, i) => (
+                                <button key={i} onClick={()=>{pickColor(c);setTool('pencil')}}
+                                    className={`cswatch ${selectedColor===c?'active':''}`}
+                                    style={{backgroundColor:c}} title={c} />
+                            ))}
+                        </div>
+                        {/* Color log: every color used, in order */}
+                        <div className="mt-2 pt-2 border-t border-neutral-700">
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-[10px] uppercase tracking-wider text-neutral-500">Color Log ({colorLog.length})</span>
+                                {colorLog.length>0 && <button onClick={()=>setColorLog([])} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-700 hover:bg-neutral-500 text-neutral-300">Clear</button>}
+                            </div>
+                            <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                                {colorLog.length===0 && <span className="text-[9px] text-neutral-600">Colors you use appear here, in order.</span>}
+                                {colorLog.map((c,i)=>(
+                                    <button key={i} className="cswatch" style={{backgroundColor:c, width:18, height:18}} title={c} onClick={()=>pickColor(c)} />
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* EXPORT */}
+                    <div className="bg-neutral-800 border border-neutral-700 rounded-xl p-3 space-y-2">
+                        <div className="text-sm font-bold flex items-center gap-2"><span>💾</span> Export</div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                                <label className="text-neutral-400 block mb-0.5">Scale</label>
+                                <select value={exportScale} onChange={e=>setExportScale(e.target.value)}
+                                    className="w-full bg-neutral-900 border border-neutral-700 rounded p-1.5 text-white">
+                                    {[1,2,4,8].map(s=><option key={s} value={s}>{s}x{s}{s===1?' (raw)':''}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-neutral-400 block mb-0.5">Format</label>
+                                <select value={exportFormat} onChange={e=>setExportFormat(e.target.value)}
+                                    className="w-full bg-neutral-900 border border-neutral-700 rounded p-1.5 text-white">
+                                    <option value="spritesheet">Spritesheet PNG</option>
+                                    {frames.length > 1 && <option value="gif">Animated GIF</option>}
+                                    <option value="png">Single PNG</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onClick={()=>setShowSave(true)}
+                            className="w-full py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-indigo-600 hover:opacity-90 text-white shadow-lg shadow-blue-900/30 transition-all active:scale-95">
+                            🎬 Export
+                        </button>
+                        <div className="text-[10px] text-neutral-600 text-center">
+                            {res}×{res}px · {frames.length} frame{frames.length!==1?'s':''} · scale {exportScale}×
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* SAVE MODAL */}
+            {showSave && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={()=>setShowSave(false)}>
+                    <div className="bg-neutral-800 border border-neutral-600 p-5 rounded-2xl w-full max-w-sm space-y-4 shadow-2xl" onClick={e=>e.stopPropagation()}>
+                        <h3 className="text-lg font-bold">🎬 Export {exportFormat.toUpperCase()}</h3>
+                        <div>
+                            <label className="text-xs text-neutral-400 block mb-1">File Name</label>
+                            <input type="text" value={saveName} onChange={e=>setSaveName(e.target.value)}
+                                className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2.5 text-white text-sm outline-none focus:border-green-500" autoFocus />
+                        </div>
+                        <div className="text-xs text-neutral-500 bg-neutral-900 p-2 rounded-lg">
+                            {exportFormat==='spritesheet' && `Spritesheet: frames laid out in grid → ${saveName}_spritesheet.png`}
+                            {exportFormat==='gif' && `Animated GIF: ${frames.length} frames @ ${fps} FPS`}
+                            {exportFormat==='png' && `Single frame: current frame #${currentFrame+1}`}
+                        </div>
+                        <div className="flex gap-3 pt-1">
+                            <button onClick={()=>setShowSave(false)}
+                                className="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 rounded-xl font-bold text-sm">Cancel</button>
+                            <button onClick={handleExport}
+                                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm shadow-lg">Export</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+const adjustColor = (hex, amt) => {
+    const c = hexToRgb(hex);
+    return rgbToHex(Math.max(0,Math.min(255,c.r+amt)), Math.max(0,Math.min(255,c.g+amt)), Math.max(0,Math.min(255,c.b+amt)));
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+
+<script>
+// Pixel Palace <-> Hub bridge
+window.addEventListener('message',function(e){
+  var d=e.data||{};
+  if(d.type==='EXPORT_CANVAS'){
+    var c=document.querySelector('canvas');
+    if(c && c.toDataURL){ try{ parent.postMessage({type:'CANVAS_DATA',from:'studio',data:c.toDataURL()},'*'); }catch(err){} }
+  }
+  if(d.type==='LOAD_CANVAS' && d.data && d.data.studio){
+    try{ if(window.__ppLoadCanvas) window.__ppLoadCanvas(d.data.studio); }catch(err){}
+  }
+});
+</script>
+
+</body>
+</html>
+

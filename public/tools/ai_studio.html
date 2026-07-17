@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pixel Palace · AI Studio</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#0b0f17;color:#dfe7f0}
+  .wrap{display:flex;gap:14px;padding:14px;flex-wrap:wrap;align-items:flex-start}
+  h1{font-size:18px;margin:0 0 4px;color:#7dd3fc}
+  .hint{font-size:12px;color:#8aa0b8;margin-bottom:10px}
+  .panel{background:#0e1626;border:1px solid #22324a;border-radius:12px;padding:12px;min-width:320px;flex:1}
+  .ctrl{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+  .ctrl label{font-size:12px;color:#9fb6cf}
+  select,input[type=text],input[type=number],textarea{background:#070b15;border:1px solid #2a3f5c;border-radius:8px;color:#dfe7f0;padding:7px 9px;font-family:inherit;font-size:13px;width:100%}
+  textarea{resize:vertical;min-height:46px}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .btn{background:#13203a;color:#cfe3ff;border:1px solid #26456f;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:#1b2c4d}
+  .btn.on{background:#0e639c;border-color:#3aa0ff;color:#fff}
+  .btn.go{border-color:#2e7d5b;color:#bff7d9}
+  .btn.go:hover{background:#16432f}
+  .seg{display:flex;gap:4px;background:#0a1120;border:1px solid #22324a;border-radius:8px;padding:4px;flex-wrap:wrap}
+  .seg .btn{background:transparent;border:none;padding:5px 8px;font-size:11px}
+  .seg .btn.on{background:#13405f}
+  canvas{background:#111;image-rendering:pixelated;border-radius:8px;max-width:100%;border:1px solid #22324a}
+  .box{background:#0e1626;border:1px solid #22324a;border-radius:12px;padding:10px;margin-top:10px}
+  .box h3{margin:0 0 6px;font-size:12px;color:#7dd3fc;font-weight:600}
+  .mono{font-family:ui-monospace,monospace;font-size:11px;color:#7fd1ff}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .sendgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  #status{margin-top:8px}
+  .ok{color:#7fffd0}
+  .err{color:#ff9a9a}
+  .busy #genBtn{opacity:.6;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel" style="max-width:400px">
+    <h1>AI Studio <span class="badge" id="devBadge">local model</span></h1>
+    <div class="hint">Generalized local AI. Drives your SD1.5 / 2D Pixel Toolkit models at native resolution — sprites, tilesets, scenes, maps, sheets. Tuning (triggers, sampler, negatives) is applied under the hood. Results send into any Pixel Palace tool.</div>
+
+    <div class="ctrl"><label>Prompt</label>
+      <textarea id="prompt" placeholder="pixel art hero knight, blue armor, game sprite">pixel art hero knight, blue armor, side view, game sprite</textarea>
+    </div>
+    <div class="ctrl"><label>Model preset</label>
+      <select id="model">
+        <option value="2dpixel">2D Pixel Toolkit (anchor · sprites/scenes)</option>
+        <option value="allinone">All-in-One Pixel (base)</option>
+        <option value="mpixel">M_Pixel (chars/scenes)</option>
+      </select>
+    </div>
+    <div class="ctrl"><label>Output mode</label>
+      <div class="seg" id="modeSeg">
+        <button class="btn on" data-mode="sprite">Sprite</button>
+        <button class="btn" data-mode="sheet">Sheet</button>
+        <button class="btn" data-mode="tileset">Tileset</button>
+        <button class="btn" data-mode="scene">Scene</button>
+        <button class="btn" data-mode="map">Map</button>
+      </div>
+    </div>
+
+    <div class="box" id="kitSlot" style="border:1px solid #2a3f5c;background:#0a1322">
+      <h3 style="color:#7dd3fc">2D Pixel Toolkit · frame slot</h3>
+      <div class="hint">The anchor model (2D Pixel Toolkit / xiangsu) outputs animation-ready sprite sheets. Set frames + frame size; the sidecar generates each frame as its own native-res sprite and tiles them into a sheet.</div>
+      <div class="twocol">
+        <div class="ctrl"><label>Frames <span class="mono" id="framesVal">4</span></label>
+          <input type="range" id="frames" min="1" max="12" step="1" value="4"/></div>
+        <div class="ctrl"><label>Frame size <span class="mono" id="frameSizeVal">64</span>px</label>
+          <input type="range" id="frameSize" min="16" max="256" step="16" value="64"/></div>
+      </div>
+      <div class="hint mono" id="kitNote">Active for Sheet mode (and any 2D Pixel Toolkit preset).</div>
+    </div>
+
+    <div class="twocol">
+      <div class="ctrl"><label>Width <span class="mono" id="wVal">64</span></label>
+        <input type="range" id="w" min="16" max="512" step="16" value="64"/></div>
+      <div class="ctrl"><label>Height <span class="mono" id="hVal">64</span></label>
+        <input type="range" id="h" min="16" max="512" step="16" value="64"/></div>
+    </div>
+
+    <div class="ctrl"><label>Sampler</label>
+      <select id="sampler">
+        <option value="euler_a">Euler a (pixel fav)</option>
+        <option value="dpmpp_2m_karras">DPM++ 2M Karras</option>
+        <option value="dpmpp_2m">DPM++ 2M</option>
+        <option value="dpmpp_sde">DPM++ SDE</option>
+        <option value="euler">Euler</option>
+        <option value="ddim">DDIM</option>
+        <option value="heun">Heun</option>
+      </select>
+    </div>
+
+    <div class="twocol">
+      <div class="ctrl"><label>Steps <span class="mono" id="stepsVal">28</span></label>
+        <input type="range" id="steps" min="8" max="60" step="1" value="28"/></div>
+      <div class="ctrl"><label>CFG <span class="mono" id="cfgVal">7.5</span></label>
+        <input type="range" id="cfg" min="1" max="15" step="0.5" value="7.5"/></div>
+    </div>
+
+    <div class="ctrl"><label>Palette snap (under the hood)</label>
+      <select id="palette">
+        <option value="none">None (model colours)</option>
+        <option value="pico8">PICO-8</option>
+        <option value="endesga">Endesga 16</option>
+        <option value="gameboy">Game Boy</option>
+        <option value="stardew">Stardew</option>
+        <option value="starbound">Starbound</option>
+        <option value="snes">SNES</option>
+        <option value="hero">Hero</option>
+        <option value="slime">Slime</option>
+        <option value="fire">Fire</option>
+        <option value="forest">Forest</option>
+        <option value="stone">Stone</option>
+        <option value="gold">Gold</option>
+        <option value="ice">Ice</option>
+        <option value="poison">Poison</option>
+      </select>
+    </div>
+
+    <div class="ctrl"><label>Seed <span class="mono" id="seedVal"></span></label>
+      <div class="row" style="margin:0">
+        <input type="number" id="seed" value="0" style="flex:1"/>
+        <button class="btn" id="rnd">&#127922;</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn go" id="genBtn">&#10024; Generate</button>
+      <button class="btn" id="reroll">&#8635; Re-roll</button>
+      <button class="btn" id="startAI" title="Launch the local AI sidecar if it isn't running">&#9881; Start AI</button>
+    </div>
+    <div class="hint mono" id="status">Idle.</div>
+    <div class="ctrl"><label>AI console</label>
+      <div id="console" class="mono" style="background:#05080f;border:1px solid #22324a;border-radius:8px;padding:8px;height:140px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;color:#7fd1ff"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="flex:2;min-width:320px">
+    <div class="box" style="display:flex;flex-direction:column;align-items:center">
+      <h3 style="align-self:flex-start">Result — native resolution</h3>
+      <canvas id="out" width="64" height="64" style="width:min(100%,480px);height:auto;image-rendering:pixelated;background:#0a0f1a"></canvas>
+      <div class="mono" id="outInfo" style="margin-top:6px"></div>
+    </div>
+    <div class="box"><h3>Send result to…</h3>
+      <div class="sendgrid">
+        <button class="btn" data-send="pixscii">Pixscii</button>
+        <button class="btn" data-send="pixel_palace_editor">Editor</button>
+        <button class="btn" data-send="pixel_forge_studio">Studio</button>
+        <button class="btn" data-send="sprite_animator">Animator</button>
+        <button class="btn" data-send="map_generator">Map Gen</button>
+        <button class="btn" data-send="asset_extractor">Asset Extract</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="dlPng">&#8595; PNG</button>
+        <button class="btn" id="dlJson">&#8595; JSON (grid)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const PORT = (window.PP_AI_PORT || 18755);
+const ENDPOINT = 'http://127.0.0.1:'+PORT+'/generate';
+const out = $('out'), octx = out.getContext('2d');
+let lastDataURL = null, lastGrid = null, busy = false;
+let mode = 'sprite';
+
+function setStatus(t, cls){ $('status').textContent = t; $('status').className = 'hint mono ' + (cls||''); }
+function log(m){ const c=$('console'); const ts=new Date().toLocaleTimeString(); c.textContent += ts+'  '+m+'\n'; c.scrollTop=c.scrollHeight; }
+function aiUp(){ try{ const r=window.__TAURI__?false:false; }catch(_){}; return fetch('http://127.0.0.1:'+PORT+'/health',{signal:AbortSignal.timeout(1500)}).then(x=>x.json()).then(j=>({ok:true,ready:j.ready})).catch(()=>({ok:false,ready:false})); }
+async function pollAI(){
+  const s=await aiUp();
+  if(s.ok){ log(s.ready? 'sidecar: READY (model loaded)' : 'sidecar: up, loading model…'); }
+  else { log('sidecar: not running — click “Start AI” or just Generate.'); }
+}
+window.addEventListener('load', ()=>{ log('AI Studio ready. Pointing at 127.0.0.1:'+PORT); pollAI(); });
+setInterval(pollAI, 5000);
+function imgToGrid(dataURL, size){
+  return new Promise((resolve)=>{ const im=new Image(); im.onload=()=>{
+    const c=document.createElement('canvas'); c.width=size; c.height=size; const x=c.getContext('2d');
+    x.imageSmoothingEnabled=false; x.drawImage(im,0,0,size,size);
+    const d=x.getImageData(0,0,size,size).data; const g=Array.from({length:size},()=>Array(size).fill(null));
+    for(let y=0;y<size;y++)for(let xx=0;xx<size;xx++){ const i=(y*size+xx)*4; if(d[i+3]>32){ g[y][xx]='#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join(''); } }
+    resolve(g); }; im.src=dataURL; });
+}
+
+async function ensureAI(){
+  // Bring the AI sidecar up through the host app if it isn't already running.
+  try{
+    if(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke){
+      log('asking host to launch sidecar…');
+      await window.__TAURI__.core.invoke('ensure_ai_sidecar', { port: PORT });
+      log('host launched sidecar.');
+    } else {
+      log('host bridge unavailable — relying on already-running sidecar.');
+    }
+  }catch(e){
+    log('launch via host failed: ' + (e.message||e));
+  }
+}
+
+async function generate(){
+  if(busy){ setStatus('Already generating…'); return; }
+  busy = true; document.body.classList.add('busy');
+  const w=+$('w').value, h=+$('h').value;
+  const body = JSON.stringify({
+    prompt: $('prompt').value,
+    negative_prompt: '',
+    model: $('model').value,
+    mode: mode,
+    width: w, height: h,
+    sampler: $('sampler').value,
+    steps: +$('steps').value,
+    cfg: +$('cfg').value,
+    palette: $('palette').value,
+    frames: +$('frames').value,
+    frame_size: +$('frameSize').value,
+    seed: +$('seed').value || Math.floor(Math.random()*1e6),
+  });
+  setStatus('Ensuring local AI sidecar is running ('+w+'×'+h+', '+mode+')…');
+  log('generate: '+mode+' '+w+'×'+h+' seed='+($('seed').value||'rand')+' palette='+$('palette').value);
+  try{
+    await ensureAI();
+    log('posting to sidecar… (model runs now; first gen after load is slow)');
+    const res = await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body});
+    if(!res.ok) throw new Error('sidecar '+res.status);
+    const blob = await res.blob();
+    const url = await new Promise((ok,err)=>{ const r=new FileReader(); r.onload=()=>ok(r.result); r.onerror=err; r.readAsDataURL(blob); });
+    lastDataURL = url;
+    const im = new Image();
+    im.onload = async ()=>{
+      out.width = im.width; out.height = im.height;
+      octx.imageSmoothingEnabled=false; octx.clearRect(0,0,out.width,out.height); octx.drawImage(im,0,0);
+      const cell = Math.max(16, Math.min(128, Math.round(Math.min(im.width,im.height)/4)));
+      lastGrid = await imgToGrid(url, cell);
+      $('outInfo').textContent = im.width+'×'+im.height+'px · '+(lastGrid?('grid '+cell+'×'+cell):'');
+      setStatus('Done — '+im.width+'×'+im.height+'px. Send it somewhere.', 'ok');
+      busy=false; document.body.classList.remove('busy');
+    };
+    im.src = url;
+  }catch(e){
+    setStatus('AI sidecar unavailable ('+e.message+'). Use the "Start AI" button, then retry.', 'err');
+    busy=false; document.body.classList.remove('busy');
+  }
+}
+
+function sendTo(tool){
+  if(!lastDataURL){ setStatus('Generate something first.'); return; }
+  const msg = { type:'AI_RESULT', data:{
+    tool: tool, dataURL: lastDataURL, grid: lastGrid,
+    width: out.width, height: out.height, mode: mode,
+    prompt: $('prompt').value
+  }};
+  parent.postMessage(msg, '*');
+  try{ window.openTool && window.openTool(tool); }catch(_){}
+  setStatus('Sent result to '+tool+'.', 'ok');
+}
+
+// wiring
+document.querySelectorAll('#modeSeg .btn').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#modeSeg .btn').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); mode=b.dataset.mode;
+  if(mode==='scene'||mode==='map'){ $('w').value=256; $('h').value=256; $('wVal').textContent=256; $('hVal').textContent=256; }
+  // The 2D Pixel Toolkit frame slot only matters for sheet output.
+  $('kitSlot').style.opacity = (mode==='sheet') ? '1' : '0.45';
+  $('kitNote').textContent = (mode==='sheet')
+    ? 'Active: generates '+($('frames').value)+' frames × '+($('frameSize').value)+'px into one sheet.'
+    : 'Frames apply in Sheet mode. For single sprites the frame slot is ignored.';
+});
+['w','h','steps','cfg'].forEach(id=>$(id).oninput=()=>$(id+'Val').textContent=$(id).value);
+['frames','frameSize'].forEach(id=>$(id).oninput=()=>{ $(id+'Val').textContent=$(id).value; if(mode==='sheet') $('kitNote').textContent='Active: generates '+($('frames').value)+' frames × '+($('frameSize').value)+'px into one sheet.'; });
+$('rnd').onclick=()=>{ $('seed').value=Math.floor(Math.random()*1e6); };
+$('genBtn').onclick=generate;
+$('reroll').onclick=()=>{ $('seed').value=0; generate(); };
+$('startAI').onclick=async ()=>{
+  setStatus('Launching AI sidecar (this can take ~20s to load the model)…', 'busy');
+  log('Start AI clicked — launching sidecar…');
+  try{ const r = await window.__TAURI__.core.invoke('ensure_ai_sidecar', { port: PORT }); setStatus(r, 'ok'); log('sidecar ready: '+r); }
+  catch(e){ setStatus('Could not start AI: '+(e.message||e), 'err'); log('start failed: '+(e.message||e)); }
+};
+document.querySelectorAll('[data-send]').forEach(b=>b.onclick=()=>sendTo(b.dataset.send));
+$('dlPng').onclick=()=>{ if(!lastDataURL)return; const a=document.createElement('a'); a.href=lastDataURL; a.download='ai_'+mode+'.png'; a.click(); };
+$('dlJson').onclick=()=>{ if(!lastGrid)return; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(lastGrid)],{type:'application/json'})); a.download='ai_'+mode+'.json'; a.click(); };
+
+// other tools can open AI Studio pre-filled: parent.postMessage({type:'AI_OPEN',prompt,mode},'*')
+window.addEventListener('message', e=>{
+  const d=e.data; if(!d||d.type!=='AI_OPEN') return;
+  if(d.prompt){ $('prompt').value=d.prompt; }
+  if(d.mode){ mode=d.mode; document.querySelectorAll('#modeSeg .btn').forEach(x=>x.classList.toggle('on', x.dataset.mode===d.mode)); }
+});
+setStatus('Idle.');
+</script>
+</body>
+</html>

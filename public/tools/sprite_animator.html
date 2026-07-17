@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sprite Animator — Pixel Palace</title>
+<style>
+  :root{
+    --bg:#05070d; --panel:#0a0f1c; --panel2:#0d1424; --line:#1c2740; --line2:#26324d;
+    --txt:#e8eefc; --dim:#8a97b5; --dim2:#5f6c8a; --accent:#22d3ee; --accent2:#7c3aed;
+    --warn:#f59e0b; --ok:#34d399; --bad:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:Inter,Avenir,system-ui,sans-serif;font-size:13px}
+  body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  button{cursor:pointer;border-radius:8px;border:1px solid var(--line2);background:#0a1120;color:var(--txt);padding:6px 10px;font-size:12px;transition:.12s}
+  button:hover{border-color:var(--accent);background:#0f1830}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.cy{background:linear-gradient(135deg,#0e7490,#155e75);border-color:#0891b2}
+  button.vi{background:linear-gradient(135deg,#047857,#065f46);border-color:#059669}
+  button.pu{background:linear-gradient(135deg,#7c3aed,#6d28d9);border-color:#8b5cf6}
+  input,select{background:#0a1120;border:1px solid var(--line2);color:var(--txt);border-radius:8px;padding:5px 8px;font-size:12px}
+  .top{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(8,12,22,.95),rgba(6,9,16,.7));flex-shrink:0;flex-wrap:wrap}
+  .top h1{font-size:14px;margin:0;color:var(--accent);letter-spacing:.5px}
+  .chip{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:20px;padding:2px 8px}
+  .main{flex:1;display:flex;min-height:0}
+  .stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative;background:
+    linear-gradient(rgba(120,200,255,.05) 1px,transparent 1px) 0 0/24px 24px,
+    linear-gradient(90deg,rgba(120,200,255,.05) 1px,transparent 1px) 0 0/24px 24px,#04060c;overflow:hidden}
+  .stage canvas{image-rendering:pixelated;box-shadow:0 0 40px rgba(0,0,0,.6);max-width:90%;max-height:90%}
+  .side{width:300px;flex:0 0 300px;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+  .sec{padding:10px 12px;border-bottom:1px solid var(--line)}
+  .sec h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 8px}
+  .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .timeline{border-top:1px solid var(--line);background:var(--panel);padding:8px;display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+  .frames{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;min-height:74px}
+  .frame{position:relative;width:64px;height:64px;flex:0 0 64px;border:2px solid var(--line2);border-radius:8px;background:
+    linear-gradient(45deg,#1a1f2e 25%,transparent 25%) 0 0/12px 12px,
+    linear-gradient(-45deg,#1a1f2e 25%,transparent 25%) 0 0/12px 12px,
+    linear-gradient(45deg,transparent 75%,#1a1f2e 75%) 0 0/12px 12px,
+    linear-gradient(-45deg,transparent 75%,#1a1f2e 75%) 0 0/12px 12px,#0c1120;overflow:hidden}
+  .frame canvas{width:100%;height:100%;image-rendering:pixelated;display:block}
+  .frame.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(34,211,238,.3)}
+  .frame .idx{position:absolute;top:1px;left:3px;font-size:9px;color:var(--dim);text-shadow:0 1px 2px #000}
+  .frame .tag{position:absolute;bottom:1px;left:1px;right:1px;font-size:8px;text-align:center;background:rgba(124,58,237,.85);color:#fff;border-radius:3px;padding:0 2px;overflow:hidden;white-space:nowrap}
+  .taglist{display:flex;flex-direction:column;gap:6px}
+  .tagrow{display:flex;gap:6px;align-items:center}
+  .tagrow input[type=text]{flex:1;min-width:0}
+  .tagrow .rng{width:54px}
+  .scroll{overflow-y:auto}
+  .hint{font-size:11px;color:var(--dim);line-height:1.5}
+  .swatch{width:18px;height:18px;border-radius:4px;border:1px solid var(--line2);display:inline-block;vertical-align:middle}
+  label.lab{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px}
+  .log{font-size:11px;color:var(--ok)}
+  .gone{opacity:.5}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>◈ Sprite Animator</h1>
+  <span class="chip" id="dims">64 × 64</span>
+  <div class="row">
+    <label class="lab">W<input id="docW" type="number" min="1" max="512" value="64" style="width:56px"></label>
+    <label class="lab">H<input id="docH" type="number" min="1" max="512" value="64" style="width:56px"></label>
+    <button id="applySize">Apply Size</button>
+  </div>
+  <div class="row" style="margin-left:auto">
+    <button class="pu" id="sendEditor">➤ Send to Editor</button>
+    <button class="pu" id="sendStudio">➤ Send to Studio</button>
+    <button id="exportSheet">⤓ Sheet PNG</button>
+    <button id="exportJson">⤓ + JSON</button>
+    <button id="exportGif">⤓ GIF</button>
+    <button class="cy" id="exportSolarus">⤓ Solarus</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="stage">
+    <canvas id="view" width="64" height="64"></canvas>
+  </div>
+
+  <div class="side scroll">
+    <div class="sec">
+      <h2>Import</h2>
+      <div class="row">
+        <button class="vi" id="impSheet">Import sheet → frames</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="impInto">Insert image into frame</button>
+        <button id="drawMode">✎ Draw mode</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="lab">Cols<input id="slCols" type="number" min="1" max="64" value="4" style="width:50px"></label>
+        <label class="lab">Rows<input id="slRows" type="number" min="1" max="64" value="1" style="width:50px"></label>
+        <button id="autoSlice">Auto-detect</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Import sheet slices a grid of frames. "Auto-detect" finds the most even grid that fits the image. "Insert image" pastes/drops a cut-out drawing into the current frame.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Align</h2>
+      <div class="row">
+        <button class="cy" id="alignAll">Align All (centroid + bbox)</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="lab"><input id="onion" type="checkbox"> Onion skin</label>
+        <label class="lab"><input id="grid" type="checkbox"> Reference grid</label>
+        <label class="lab">Grid<input id="gridN" type="number" min="2" max="64" value="8" style="width:48px" title="divisions"></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="lab">Nudge
+          <button id="nu" style="padding:2px 6px">↑</button>
+          <button id="nd" style="padding:2px 6px">↓</button>
+          <button id="nl" style="padding:2px 6px">←</button>
+          <button id="nr" style="padding:2px 6px">→</button>
+        </label>
+      </div>
+      <div class="hint" style="margin-top:6px">Align All re-centers every frame on its alpha-weighted centroid, then fits its bounding box so the sprite stays rock-steady across the loop. Use nudge for fine manual offset. Turn on the reference grid to hand-align drawings against a fixed guide.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Resize frame</h2>
+      <div class="row">
+        <label class="lab">Scale<input id="rsScale" type="number" min="0.1" max="8" step="0.1" value="1" style="width:56px"></label>
+        <button class="vi" id="rsApply">Resize current</button>
+        <button id="rsAll">Resize all</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="lab">To W<input id="rsW" type="number" min="1" max="512" value="64" style="width:52px"></label>
+        <label class="lab">H<input id="rsH" type="number" min="1" max="512" value="64" style="width:52px"></label>
+        <button id="rsTo">Set size</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Hand-drawn assets are rarely the same size. Scale a frame up/down (nearest-neighbor, crisp pixels) or force every frame to a target size before aligning/exporting.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Tags (animation ranges)</h2>
+      <div class="taglist" id="tagList"></div>
+      <div class="row" style="margin-top:6px">
+        <input id="tagName" type="text" placeholder="name (idle/walk/attack)" style="flex:1;min-width:0">
+        <input id="tagA" type="number" min="1" value="1" class="rng" title="first frame">
+        <input id="tagB" type="number" min="1" value="1" class="rng" title="last frame">
+        <button id="addTag">+ Add</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Frame ranges become TexturePacker/ASEprite frameTags. Godot/Tiled read them by name (idle, walk, attack…).</div>
+      <div class="row" style="margin-top:8px;align-items:center">
+        <label class="lab">Directions
+          <select id="directions" style="width:auto">
+            <option value="1">1 (single)</option>
+            <option value="2">2 (left/right)</option>
+            <option value="3">3</option>
+            <option value="4" selected>4 (up/down/left/right)</option>
+          </select>
+        </label>
+        <label class="lab"><input id="solarusView" type="checkbox"> Solarus view</label>
+      </div>
+      <div class="hint" style="margin-top:6px">Solarus expects rows = directions (right, up, left, down), columns = frames per direction. "Solarus view" lays the sheet out that way so you can verify; "Export Solarus" writes the PNG + .dat sprite.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Draw</h2>
+      <div class="row">
+        <input id="brushColor" type="color" value="#ffffff" style="width:36px;padding:2px">
+        <label class="lab">Size<input id="brushSize" type="number" min="1" max="32" value="1" style="width:48px"></label>
+        <button id="eraser">Eraser</button>
+        <button id="clearFrame">Clear frame</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Log</h2>
+      <div class="log" id="log">Ready.</div>
+    </div>
+  </div>
+</div>
+
+<div class="timeline">
+  <div class="row" style="align-items:center">
+    <button class="vi" id="play">▶ Play</button>
+    <label class="lab">FPS<input id="fps" type="number" min="1" max="60" value="10" style="width:50px"></label>
+    <label class="lab"><input id="loop" type="checkbox" checked> Loop</label>
+    <button id="addFrame">+ Frame</button>
+    <button id="dupFrame">⧉ Dup</button>
+    <button id="delFrame">✕ Del</button>
+    <button id="moveL">◀</button>
+    <button id="moveR">▶</button>
+    <span class="chip" id="frameInfo">frame 1 / 1</span>
+  </div>
+  <div class="frames" id="frames"></div>
+</div>
+
+<input id="fileInput" type="file" accept="image/*" style="display:none">
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const view = $('view');
+  const vctx = view.getContext('2d');
+  let docW = 64, docH = 64;
+  let frames = [];          // each: {canvas}
+  let cur = 0;
+  let tags = [];            // {name, a, b}
+  let playing = false, playTimer = null, playIdx = 0;
+  let drawMode = false, erasing = false;
+  const log = m => { $('log').textContent = m; };
+
+  // ---- frame helpers ----
+  function newFrameCanvas(){ const c=document.createElement('canvas'); c.width=docW; c.height=docH; return c; }
+  function addFrame(idx){ const c=newFrameCanvas(); if(idx==null||idx>=frames.length) frames.push({canvas:c}); else frames.splice(idx,0,{canvas:c}); }
+  function ensureFrames(){ if(frames.length===0) addFrame(); }
+  function curCanvas(){ ensureFrames(); return frames[Math.min(cur,frames.length-1)].canvas; }
+
+  function render(){
+    ensureFrames();
+    cur = Math.min(cur, frames.length-1);
+    // Solarus view: show the whole sheet laid out rows=dirs, cols=framesPerDir
+    if($('solarusView') && $('solarusView').checked){
+      const {cv}=buildSolarusSheet();
+      view.width=cv.width; view.height=cv.height;
+      vctx.clearRect(0,0,cv.width,cv.height);
+      vctx.drawImage(cv,0,0);
+      // direction row guides
+      const dirs=+$('directions').value||1, fpd=Math.max(1,Math.floor(frames.length/dirs));
+      vctx.strokeStyle='rgba(34,211,238,.4)'; vctx.lineWidth=1;
+      const names=['R','U','L','D'];
+      for(let d=0;d<dirs;d++){ const y=d*docH+0.5; vctx.beginPath(); vctx.moveTo(0,y); vctx.lineTo(cv.width,y); vctx.stroke();
+        vctx.fillStyle='rgba(34,211,238,.7)'; vctx.font='10px monospace'; vctx.fillText(names[d]||('d'+d), 2, y+12); }
+      $('dims').textContent = cv.width+' × '+cv.height+' (Solarus: '+dirs+' dirs × '+fpd+')';
+      $('frameInfo').textContent = 'Solarus sheet view';
+      renderTimeline();
+      return;
+    }
+    const fc = frames[cur].canvas;
+    view.width = docW; view.height = docH;
+    vctx.clearRect(0,0,docW,docH);
+    // onion skin
+    if($('onion').checked && cur>0){ vctx.globalAlpha=0.25; vctx.drawImage(frames[cur-1].canvas,0,0); vctx.globalAlpha=1; }
+    vctx.drawImage(fc,0,0);
+    // reference grid overlay
+    if($('grid').checked){
+      const n=Math.max(2,+$('gridN').value||8); const stepW=docW/n, stepH=docH/n;
+      vctx.strokeStyle='rgba(34,211,238,.25)'; vctx.lineWidth=1; vctx.beginPath();
+      for(let i=1;i<n;i++){ const x=Math.round(i*stepW)+0.5; vctx.moveTo(x,0); vctx.lineTo(x,docH); const y=Math.round(i*stepH)+0.5; vctx.moveTo(0,y); vctx.lineTo(docW,y); }
+      vctx.stroke();
+      vctx.strokeStyle='rgba(245,158,11,.5)'; vctx.beginPath(); vctx.moveTo(Math.round(docW/2)+0.5,0); vctx.lineTo(Math.round(docW/2)+0.5,docH); vctx.moveTo(0,Math.round(docH/2)+0.5); vctx.lineTo(docW,Math.round(docH/2)+0.5); vctx.stroke();
+    }
+    $('dims').textContent = docW+' × '+docH;
+    $('frameInfo').textContent = 'frame '+(cur+1)+' / '+frames.length;
+    renderTimeline();
+  }
+
+  function renderTimeline(){
+    const wrap = $('frames'); wrap.innerHTML='';
+    frames.forEach((f,i)=>{
+      const d=document.createElement('div'); d.className='frame'+(i===cur?' active':'');
+      const cv=document.createElement('canvas'); cv.width=docW; cv.height=docH;
+      cv.getContext('2d').drawImage(f.canvas,0,0);
+      d.appendChild(cv);
+      const idx=document.createElement('div'); idx.className='idx'; idx.textContent=(i+1); d.appendChild(idx);
+      const t = tags.find(t=>i+1>=t.a && i+1<=t.b);
+      if(t){ const tag=document.createElement('div'); tag.className='tag'; tag.textContent=t.name; d.appendChild(tag); }
+      d.onclick=()=>{ cur=i; stopPlay(); render(); };
+      wrap.appendChild(d);
+    });
+  }
+
+  // ---- size ----
+  $('applySize').onclick=()=>{
+    const nw=Math.max(1,Math.min(512,+$('docW').value||64));
+    const nh=Math.max(1,Math.min(512,+$('docH').value||64));
+    // rescale existing frames
+    frames.forEach(f=>{ const c=newFrameCanvas(); c.width=nw;c.height=nh; c.getContext('2d').drawImage(f.canvas,0,0,nw,nh); f.canvas=c; });
+    docW=nw; docH=nh; render();
+  };
+
+  // ---- import sheet ----
+  function sliceSheet(img, cols, rows){
+    cols=Math.max(1,cols|0); rows=Math.max(1,rows|0);
+    const fw=Math.floor(img.width/cols), fh=Math.floor(img.height/rows);
+    frames=[];
+    for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+      const fc=newFrameCanvas();
+      // center the cell within doc if doc != cell
+      const dx=Math.floor((docW-fw)/2), dy=Math.floor((docH-fh)/2);
+      fc.getContext('2d').drawImage(img, c*fw, r*fh, fw, fh, Math.max(0,dx), Math.max(0,dy), fw, fh);
+      frames.push({canvas:fc});
+    }
+    cur=0; render(); log('Sliced '+cols+'×'+rows+' = '+frames.length+' frames.');
+  }
+  $('impSheet').onclick=()=>{ pickImage(img=>sliceSheet(img, +$('slCols').value, +$('slRows').value)); };
+  $('autoSlice').onclick=()=>{
+    pickImage(img=>{
+      // try to find most even grid: assume roughly square cells close to doc size
+      let best=[1,1], bestErr=Infinity;
+      for(let cols=1;cols<=12;cols++) for(let rows=1;rows<=12;rows++){
+        const fw=img.width/cols, fh=img.height/rows;
+        const err=Math.abs(fw-docW)+Math.abs(fh-docH)+Math.abs(fw-fh);
+        if(err<bestErr){bestErr=err;best=[cols,rows];}
+      }
+      $('slCols').value=best[0]; $('slRows').value=best[1];
+      sliceSheet(img,best[0],best[1]);
+    });
+  };
+  $('impInto').onclick=()=>{ pickImage(img=>{
+    ensureFrames();
+    const fc=frames[cur].canvas.getContext('2d');
+    const dx=Math.floor((docW-img.width)/2), dy=Math.floor((docH-img.height)/2);
+    fc.drawImage(img, Math.max(0,dx), Math.max(0,dy));
+    render(); log('Inserted image into frame '+(cur+1)+'.');
+  }); };
+
+  function pickImage(cb){
+    const inp=$('fileInput'); inp.onchange=()=>{
+      const f=inp.files[0]; if(!f) return;
+      const img=new Image(); img.onload=()=>cb(img); img.src=URL.createObjectURL(f);
+    }; inp.click();
+  }
+
+  // ---- align (centroid + bbox) ----
+  function alignFrame(fc){
+    const ctx=fc.getContext('2d');
+    const w=fc.width,h=fc.height;
+    const d=ctx.getImageData(0,0,w,h).data;
+    let sumX=0,sumY=0,sumA=0,minX=w,minY=h,maxX=0,maxY=0,count=0;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const a=d[(y*w+x)*4+3];
+      if(a>16){ sumX+=x*a; sumY+=y*a; sumA+=a; count++;
+        if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+    }
+    if(count===0) return;
+    const cx=sumX/sumA, cy=sumY/sumA;          // alpha-weighted centroid
+    const bw=maxX-minX+1, bh=maxY-minY+1;
+    const anchorX=w/2, anchorY=h/2;
+    const offX=Math.round(anchorX-cx), offY=Math.round(anchorY-cy);
+    // crop bbox and draw centered on anchor
+    const out=document.createElement('canvas'); out.width=w; out.height=h;
+    const octx=out.getContext('2d');
+    octx.drawImage(fc, minX, minY, bw, bh, Math.round(anchorX-bw/2), Math.round(anchorY-bh/2), bw, bh);
+    ctx.clearRect(0,0,w,h); ctx.drawImage(out,0,0);
+  }
+  $('alignAll').onclick=()=>{ frames.forEach(f=>alignFrame(f.canvas)); render(); log('Aligned '+frames.length+' frames on centroid + bbox.'); };
+  function nudge(dx,dy){ ensureFrames(); const ctx=frames[cur].canvas.getContext('2d');
+    const out=document.createElement('canvas'); out.width=docW;out.height=docH;
+    out.getContext('2d').drawImage(frames[cur].canvas,dx,dy);
+    ctx.clearRect(0,0,docW,docH); ctx.drawImage(out,0,0); render(); }
+  $('nu').onclick=()=>nudge(0,-1); $('nd').onclick=()=>nudge(0,1);
+  $('nl').onclick=()=>nudge(-1,0); $('nr').onclick=()=>nudge(1,0);
+
+  // ---- resize (nearest-neighbor) ----
+  function scaleFrame(fc, scale){
+    const ow=fc.width, oh=fc.height;
+    const nw=Math.max(1,Math.round(ow*scale)), nh=Math.max(1,Math.round(oh*scale));
+    const out=newFrameCanvas(); out.width=nw; out.height=nh;
+    const octx=out.getContext('2d'); octx.imageSmoothingEnabled=false;
+    octx.drawImage(fc,0,0,nw,nh);
+    return out;
+  }
+  function resizeFrameTo(fc, tw, th){
+    const out=newFrameCanvas(); out.width=tw; out.height=th;
+    const octx=out.getContext('2d'); octx.imageSmoothingEnabled=false;
+    octx.drawImage(fc,0,0,tw,th);
+    return out;
+  }
+  $('rsApply').onclick=()=>{ ensureFrames(); const s=Math.max(0.1,Math.min(8,+$('rsScale').value||1));
+    frames[cur].canvas=scaleFrame(frames[cur].canvas,s); render(); log('Scaled frame '+(cur+1)+' ×'+s+'.'); };
+  $('rsAll').onclick=()=>{ const s=Math.max(0.1,Math.min(8,+$('rsScale').value||1));
+    frames.forEach(f=>f.canvas=scaleFrame(f.canvas,s)); render(); log('Scaled all frames ×'+s+'.'); };
+  $('rsTo').onclick=()=>{ const tw=Math.max(1,Math.min(512,+$('rsW').value||docW)), th=Math.max(1,Math.min(512,+$('rsH').value||docH));
+    frames.forEach(f=>f.canvas=resizeFrameTo(f.canvas,tw,th)); render(); log('Set all frames to '+tw+'×'+th+'.'); };
+
+  // ---- tags ----
+  $('addTag').onclick=()=>{
+    const name=$('tagName').value.trim(); if(!name) return;
+    const a=Math.max(1,+$('tagA').value||1), b=Math.max(a,+$('tagB').value||a);
+    tags.push({name,a,b}); renderTags(); render();
+  };
+  function renderTags(){ const l=$('tagList'); l.innerHTML='';
+    tags.forEach((t,i)=>{ const r=document.createElement('div'); r.className='tagrow';
+      r.innerHTML=`<span class="swatch" style="background:var(--accent2)"></span><span style="flex:1">${t.name}</span><span class="hint">${t.a}–${t.b}</span>`;
+      const del=document.createElement('button'); del.textContent='✕'; del.onclick=()=>{tags.splice(i,1);renderTags();render();};
+      r.appendChild(del); l.appendChild(r);
+    });
+  }
+
+  // ---- timeline ops ----
+  $('addFrame').onclick=()=>{ addFrame(cur+1); cur=Math.min(cur+1,frames.length-1); render(); };
+  $('dupFrame').onclick=()=>{ ensureFrames(); const src=frames[cur].canvas; const c=newFrameCanvas(); c.getContext('2d').drawImage(src,0,0); frames.splice(cur+1,0,{canvas:c}); cur=cur+1; render(); };
+  $('delFrame').onclick=()=>{ if(frames.length<=1){log('Need at least 1 frame.');return;} frames.splice(cur,1); cur=Math.max(0,cur-1); render(); };
+  $('moveL').onclick=()=>{ if(cur===0)return; const t=frames[cur];frames[cur]=frames[cur-1];frames[cur-1]=t;cur--;render(); };
+  $('moveR').onclick=()=>{ if(cur>=frames.length-1)return; const t=frames[cur];frames[cur]=frames[cur+1];frames[cur+1]=t;cur++;render(); };
+  function play(){ if(playing)return; playing=true; playIdx=cur; $('play').textContent='⏸ Stop';
+    const step=()=>{ renderPlayFrame(); const fps=Math.max(1,+$('fps').value||10);
+      playTimer=setTimeout(()=>{ if(!playing)return;
+        if(playIdx<frames.length-1) playIdx++; else if($('loop').checked) playIdx=0; else { stopPlay(); return; }
+        step(); }, 1000/fps); };
+    step();
+  }
+  function renderPlayFrame(){ const fc=frames[playIdx].canvas; vctx.clearRect(0,0,docW,docH); vctx.drawImage(fc,0,0);
+    $('frameInfo').textContent='play '+(playIdx+1)+' / '+frames.length; }
+  function stopPlay(){ playing=false; if(playTimer)clearTimeout(playTimer); $('play').textContent='▶ Play'; render(); }
+  $('play').onclick=()=>{ playing?stopPlay():play(); };
+
+  // ---- draw mode on canvas ----
+  let drawing=false, lastX=0,lastY=0;
+  function evPos(e){ const r=view.getBoundingClientRect(); const sx=docW/r.width, sy=docH/r.height;
+    return [Math.floor((e.clientX-r.left)*sx), Math.floor((e.clientY-r.top)*sy)]; }
+  view.onmousedown=e=>{ if(!drawMode)return; drawing=true; const p=evPos(e); lastX=p[0];lastY=p[1]; paint(p[0],p[1]); };
+  window.addEventListener('mouseup',()=>drawing=false);
+  view.onmousemove=e=>{ if(!drawMode||!drawing)return; const p=evPos(e); line(lastX,lastY,p[0],p[1]); lastX=p[0];lastY=p[1]; };
+  function paint(x,y){ const ctx=curCanvas().getContext('2d'); const s=Math.max(1,+$('brushSize').value||1);
+    ctx.fillStyle = erasing?'rgba(0,0,0,0)':$('brushColor').value;
+    if(erasing) ctx.clearRect(x,y,s,s); else ctx.fillRect(x,y,s,s); render(); }
+  function line(x0,y0,x1,y1){ const ctx=curCanvas().getContext('2d'); const s=Math.max(1,+$('brushSize').value||1);
+    const dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1; let err=dx-dy,x=x0,y=y0;
+    ctx.fillStyle=erasing?'rgba(0,0,0,0)':$('brushColor').value;
+    while(true){ if(erasing)ctx.clearRect(x,y,s,s); else ctx.fillRect(x,y,s,s);
+      if(x===x1&&y===y1)break; const e2=2*err; if(e2>-dy){err-=dy;x+=sx;} if(e2<dx){err+=dx;y+=sy;} } render(); }
+  $('drawMode').onclick=()=>{ drawMode=!drawMode; $('drawMode').classList.toggle('cy',drawMode); log(drawMode?'Draw mode ON — click/drag on canvas.':'Draw mode OFF.'); };
+  $('eraser').onclick=()=>{ erasing=!erasing; $('eraser').classList.toggle('cy',erasing); };
+  $('clearFrame').onclick=()=>{ ensureFrames(); curCanvas().getContext('2d').clearRect(0,0,docW,docH); render(); };
+
+  // drag-drop image into frame
+  view.ondragover=e=>e.preventDefault();
+  view.ondrop=e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(!f)return;
+    const img=new Image(); img.onload=()=>{ ensureFrames(); const fc=frames[cur].canvas.getContext('2d');
+      const dx=Math.floor((docW-img.width)/2),dy=Math.floor((docH-img.height)/2); fc.drawImage(img,Math.max(0,dx),Math.max(0,dy)); render(); }; img.src=URL.createObjectURL(f); };
+
+  // ---- export ----
+  // layout: if directions>1, rows=dirs, cols=framesPerDir (each direction is a contiguous block of frames)
+  function buildSheet(directions){
+    directions = directions||1;
+    let cols, rows;
+    if(directions>1){
+      cols = Math.max(1, Math.floor(frames.length/directions));
+      rows = directions;
+    } else {
+      cols = Math.min(frames.length, Math.max(1, Math.ceil(Math.sqrt(frames.length))));
+      rows = Math.ceil(frames.length/cols);
+    }
+    const cv=document.createElement('canvas'); cv.width=cols*docW; cv.height=rows*docH;
+    const ctx=cv.getContext('2d');
+    frames.forEach((f,i)=>{ const x=(i%cols)*docW, y=Math.floor(i/cols)*docH; ctx.drawImage(f.canvas,0,0,docW,docH,x,y); });
+    return {cv,cols,rows};
+  }
+  function buildSolarusSheet(){
+    const dirs=Math.max(1,+$('directions').value||1);
+    const fpd=Math.max(1, Math.floor(frames.length/dirs));
+    const cols=fpd, rows=dirs;
+    const cv=document.createElement('canvas'); cv.width=cols*docW; cv.height=rows*docH;
+    const ctx=cv.getContext('2d');
+    for(let d=0;d<dirs;d++) for(let f=0;f<fpd;f++){ const i=d*fpd+f; if(i>=frames.length) continue;
+      ctx.drawImage(frames[i].canvas,0,0,docW,docH, f*docW, d*docH); }
+    return {cv,cols,rows,dirs,fpd};
+  }
+  function download(cv,name){ const a=document.createElement('a'); a.href=cv.toDataURL('image/png'); a.download=name; a.click(); }
+  $('exportSheet').onclick=()=>{ const {cv}=buildSheet(); download(cv,'spritesheet.png'); log('Exported sheet PNG.'); };
+  $('exportJson').onclick=()=>{ const {cv,cols,rows}=buildSheet(); download(cv,'spritesheet.png');
+    const fw=docW,fh=docH; const framesJson=[];
+    for(let i=0;i<frames.length;i++){ const col=i%cols,row=Math.floor(i/cols);
+      framesJson.push({filename:`spritesheet.png`,frame:{'x':col*fw,'y':row*fh,'w':fw,'h':fh},
+        rotated:false,trimmed:false,spriteSourceSize:{'x':0,'y':0,'w':fw,'h':fh},sourceSize:{'w':fw,'h':fh}}); }
+    const out={frames:framesJson, meta:{app:'Pixel Palace Sprite Animator',version:'1.0',
+      image:'spritesheet.png',format:'RGBA8888',size:{w:cv.width,h:cv.height},
+      scale:'1', frameTags: tags.map(t=>({name:t.name,from:(t.a-1),to:(t.b-1),direction:'forward'})) }};
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'})); a.download='spritesheet.json'; a.click();
+    log('Exported sheet PNG + TexturePacker JSON ('+tags.length+' tags).');
+  };
+  function gifBytes(){ // minimal animated GIF (global palette, nearest-color) 
+    const {cv,cols,rows}=buildSheet();
+    const W=cv.width,H=cv.height; const data=cv.getContext('2d').getImageData(0,0,W,H).data;
+    // build palette from unique RGBA (cap 256)
+    const pal=[]; const palMap={}; const idx=new Uint8Array(W*H);
+    for(let i=0;i<W*H;i++){ const a=data[i*4+3]; if(a<128){ const key='t'; if(palMap[key]===undefined){palMap[key]=pal.length;pal.push([0,0,0,0]);} idx[i]=palMap[key]; continue; }
+      const r=data[i*4],g=data[i*4+1],b=data[i*4+2]; const key=r+','+g+','+b;
+      if(palMap[key]===undefined){ if(pal.length>=256){ // fallback nearest
+          let best=0,bd=1e9; for(let p=0;p<pal.length;p++){const dd=(pal[p][0]-r)**2+(pal[p][1]-g)**2+(pal[p][2]-b)**2; if(dd<bd){bd=dd;best=p;}} idx[i]=best; continue; }
+        palMap[key]=pal.length; pal.push([r,g,b,255]); }
+      idx[i]=palMap[key]; }
+    // write GIF
+    const out=[]; const u8=(n)=>{out.push(n&255,(n>>8)&255);}; const bch=c=>out.push(c.charCodeAt(0));
+    'GIF89a'.split('').forEach(bch); u8(W); u8(H); out.push(0xF7); out.push(0,0); // GCT, 256
+    pal.forEach(p=>{out.push(p[0],p[1],p[2]);});
+    // netscape loop
+    out.push(0x21,0xFF,0x0B); 'NETSCAPE2.0'.split('').forEach(bch); out.push(0x03,0x01); u8(0); out.push(0x00);
+    const delay=Math.max(2,Math.round(100/($('fps').value||10)));
+    const cellW=docW, cellH=docH, nc=cols, nr=rows;
+    for(let fi=0;fi<frames.length;fi++){
+      const col=fi%nc,row=Math.floor(fi/nc); const x0=col*cellW,y0=row*cellH;
+      out.push(0x2C); u8(x0); u8(y0); u8(cellW); u8(cellH); out.push(0); // no LCT
+      // LZW encode this frame's indices
+      lzw(out, idx.subarray((y0*W+x0), (y0*W+x0)+cellH*W).filter((v,kk)=>kk%W>=x0&&kk%W<x0+cellW), cellW, cellH, Math.max(2,Math.ceil(Math.log2(pal.length))));
+      out.push(0x00);
+    }
+    out.push(0x3B);
+    return new Uint8Array(out);
+  }
+  function lzw(out, sub, w, h, minCode){ // sub: array of palette indices (length w*h), row-major w
+    out.push(minCode); // LZW min code size
+    const buf=[]; let cur=0,curBits=0;
+    const emit=(code)=>{ cur |= code<<curBits; curBits+=codeSize; while(curBits>=8){ buf.push(cur&255); cur>>=8; curBits-=8; } };
+    let codeSize=minCode+1; const clear=1<<minCode, eoi=clear+1; let dict=new Map(); let next=clear+2;
+    const reset=()=>{ dict=new Map(); for(let i=0;i<next;i++) dict.set(String(i),i); codeSize=minCode+1; next=clear+2; };
+    emit(clear); reset();
+    let prefix=''; for(let i=0;i<sub.length;i++){ const k=sub[i]; const np=prefix+','+k;
+      if(dict.has(np)){ prefix=np; }
+      else { emit(dict.get(prefix)); if(next<4096){ dict.set(np,next++); } prefix=''+k; if(next>=(1<<codeSize)&&codeSize<12) codeSize++; }
+    }
+    if(prefix!=='') emit(dict.get(prefix));
+    emit(eoi); if(curBits>0) buf.push(cur&255);
+    // packetize into sub-blocks of 255
+    for(let i=0;i<buf.length;i+=255){ const n=Math.min(255,buf.length-i); out.push(n); for(let j=0;j<n;j++) out.push(buf[i+j]); }
+  }
+  $('exportGif').onclick=()=>{ const bytes=gifBytes(); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([bytes],{type:'image/gif'})); a.download='animation.gif'; a.click(); log('Exported GIF ('+frames.length+' frames).'); };
+
+  // ---- Solarus export (sprite PNG + .dat) ----
+  $('exportSolarus').onclick=()=>{
+    const {cv,cols,rows,dirs,fpd}=buildSolarusSheet();
+    download(cv, 'sprite.png');
+    const fw=docW, fh=docH;
+    const dirNames=['right','up','left','down','up_left','up_right','down_left','down_right'];
+    const frameDelay=Math.max(10, Math.round(1000/(+$('fps').value||10)));
+    let dat='sprite{\n';
+    const anims = tags.length ? tags : [{name:'animation', a:1, b:frames.length}];
+    anims.forEach(t=>{
+      const start=Math.max(0,(t.a-1)), end=Math.min(frames.length-1,(t.b-1));
+      dat+='  animation{\n';
+      dat+='    name="'+t.name+'"\n';
+      dat+='    src_image="sprite.png"\n';
+      dat+='    frame_delay='+frameDelay+'\n';
+      dat+='    directions='+dirs+'\n';
+      for(let d=0; d<dirs; d++){
+        dat+='    direction{\n';
+        dat+='      name="'+dirNames[d]+'"\n';
+        for(let f=0; f<fpd; f++){
+          const gi = d*fpd + f;
+          if(gi<start || gi>end) continue;
+          const col=f, row=d;
+          dat+='      frame{ x='+(col*fw)+' y='+(row*fh)+' width='+fw+' height='+fh+' }\n';
+        }
+        dat+='    }\n';
+      }
+      dat+='  }\n';
+    });
+    dat+='}\n';
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([dat],{type:'text/plain'})); a.download='sprite.dat'; a.click();
+    log('Exported Solarus sprite.png + sprite.dat ('+dirs+' dirs × '+fpd+' frames, '+anims.length+' anim).');
+  };
+
+  // ---- send to editor/studio ----
+  function sendTo(target){
+    const {cv}=buildSheet(); const url=cv.toDataURL('image/png');
+    try{ parent.postMessage({type:'CANVAS_DATA',from:'animator',data:url},'*'); }catch(e){}
+    const msg={type:'LOAD_CANVAS', data:{}}; msg.data[target]=url;
+    try{ parent.postMessage(msg,'*'); }catch(e){}
+    log('Sent sheet to '+(target==='editor'?'Editor':'Studio')+'.');
+  }
+  $('sendEditor').onclick=()=>sendTo('editor');
+  $('sendStudio').onclick=()=>sendTo('studio');
+
+  // ---- init ----
+  addFrame(); render(); log('Ready — import a sheet or draw frame 1.');
+  // expose flat canvas for any CANVAS_DATA requests
+  window.__ppGetFlatCanvas=()=>buildSheet().cv.toDataURL('image/png');
+})();
+</script>
+</body>
+</html>

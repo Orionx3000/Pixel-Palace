@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Asset Extractor & Manual Heal</title>
+    <script src="../vendor/tailwind.js"></script>
+    <style>
+        .canvas-container { position: relative; overflow: auto; max-height: 75vh; border: 2px solid #333; background: #0a0a0a; cursor: crosshair; }
+        .canvas-wrapper { position: relative; display: inline-block; }
+        canvas { display: block; }
+        #overlayCanvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+        .tool-btn.active { background-color: #3b82f6; color: white; border-color: #2563eb; }
+        .source-btn.active { background-color: #ef4444; color: white; animation: pulse 1.5s infinite; }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-neutral-900 p-4">
+    <div class="max-w-7xl mx-auto bg-neutral-800 p-6 rounded-xl shadow-lg">
+        <h1 class="text-2xl font-bold mb-4 text-gray-100">Asset Extractor & Manual Heal Tool</h1>
+        
+        <div class="mb-4 flex flex-wrap gap-4 items-center">
+            <input type="file" id="upload" accept="image/*" class="border p-2 rounded text-sm bg-neutral-700">
+            <div class="border-l-2 border-neutral-700 pl-4 flex gap-2">
+                <button class="tool-btn active bg-neutral-700 px-4 py-2 rounded font-semibold text-sm transition border-2 border-transparent" data-tool="rect">Rectangle</button>
+                <button class="tool-btn bg-neutral-700 px-4 py-2 rounded font-semibold text-sm transition border-2 border-transparent" data-tool="circle">Circle / Oval</button>
+                <button class="tool-btn bg-neutral-700 px-4 py-2 rounded font-semibold text-sm transition border-2 border-transparent" data-tool="lasso">Lasso</button>
+                
+                <!-- Manual Heal Tools -->
+                <div class="flex ml-4 bg-blue-950/40 border border-blue-800 p-1 rounded gap-2">
+                    <button class="tool-btn bg-neutral-700 px-4 py-2 rounded font-semibold text-sm transition border-2 border-transparent" data-tool="clone">Manual Heal Brush</button>
+                    <button id="btnSetSource" class="source-btn bg-gray-300 text-gray-300 px-3 py-2 rounded font-semibold text-sm transition hidden border-2 border-transparent shadow-inner">🎯 Grab Background (Source)</button>
+                </div>
+            </div>
+            <div class="border-l-2 border-neutral-700 pl-4 flex items-center gap-2">
+                <label class="text-sm font-bold text-gray-400">Zoom:</label>
+                <input type="range" id="zoomSlider" min="10" max="300" value="100" class="w-32">
+                <span id="zoomVal" class="text-sm font-mono font-bold text-gray-300">100%</span>
+            </div>
+            <div id="brushSizeContainer" class="hidden border-l-2 border-neutral-700 pl-4 flex items-center gap-2">
+                <label class="text-sm font-bold text-gray-400">Size:</label>
+                <input type="range" id="brushSlider" min="10" max="400" value="40" class="w-20">
+                
+                <label class="text-sm font-bold text-gray-400 ml-2">Opacity:</label>
+                <input type="range" id="opacitySlider" min="1" max="100" value="100" class="w-20">
+            </div>
+        </div>
+        
+        <div class="mb-4 flex flex-wrap gap-4 items-center">
+            <button id="btnExtract" class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded font-bold shadow-md transition">1. Extract Selection</button>
+            <button id="btnAutoHeal" class="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded font-bold shadow-md transition hidden">✨ Auto-Fill Hole</button>
+            <button id="btnSaveMap" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded font-bold shadow-md transition">2. Download Cleaned Map</button>
+            <button id="btnUndo" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded font-bold shadow-md transition hidden">Undo Heal</button>
+            
+                <div id="cloneHelp" class="text-sm text-blue-200 font-semibold hidden bg-blue-900/40 px-3 py-2 rounded border border-blue-700 w-full mt-2">
+                <b>HOW TO MANUAL HEAL:</b> 1. Click 'Grab Background' (or hold SHIFT). 2. Click on a nice piece of empty water/grass to grab it. 3. Drag your mouse over the boat to erase it!
+            </div>
+        </div>
+
+        <div class="canvas-container" id="container">
+            <div class="canvas-wrapper">
+                <canvas id="mainCanvas"></canvas>
+                <canvas id="overlayCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const upload = document.getElementById('upload');
+        const mainCanvas = document.getElementById('mainCanvas');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const ctx = mainCanvas.getContext('2d', { willReadFrequently: true });
+        const oCtx = overlayCanvas.getContext('2d');
+        
+        const btnExtract = document.getElementById('btnExtract');
+        const btnSaveMap = document.getElementById('btnSaveMap');
+        const btnUndo = document.getElementById('btnUndo');
+        const btnSetSource = document.getElementById('btnSetSource');
+        const btnAutoHeal = document.getElementById('btnAutoHeal');
+        
+        const cloneHelp = document.getElementById('cloneHelp');
+        const container = document.getElementById('container');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const zoomVal = document.getElementById('zoomVal');
+        const brushSlider = document.getElementById('brushSlider');
+        const opacitySlider = document.getElementById('opacitySlider');
+        const brushSizeContainer = document.getElementById('brushSizeContainer');
+
+        let img = new Image();
+        let currentTool = 'rect';
+        let isDrawing = false;
+        let isPickingSource = false;
+        
+        let startX, startY;
+        let currentX, currentY;
+        let points = [];
+        let currentZoom = 1.0;
+        let lastSelectionBounds = null;
+        
+        // Clone stamp vars
+        let cloneSourceX = -1;
+        let cloneSourceY = -1;
+        let cloneBrushSize = parseInt(brushSlider.value);
+        
+        // Undo stack
+        let undoStack = [];
+        const MAX_UNDO = 10;
+
+        document.querySelectorAll('.tool-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.tool-btn').forEach(b => {
+                    b.classList.remove('active');
+                    b.classList.replace('bg-blue-500', 'bg-neutral-700');
+                    b.classList.remove('text-white');
+                });
+                e.target.classList.add('active');
+                e.target.classList.replace('bg-neutral-700', 'bg-blue-500');
+                e.target.classList.add('text-white');
+                currentTool = e.target.dataset.tool;
+                
+                cloneHelp.classList.toggle('hidden', currentTool !== 'clone');
+                brushSizeContainer.classList.toggle('hidden', currentTool !== 'clone');
+                btnSetSource.classList.toggle('hidden', currentTool !== 'clone');
+                btnUndo.classList.toggle('hidden', currentTool !== 'clone');
+                
+                isPickingSource = false;
+                btnSetSource.classList.remove('active');
+                
+                clearOverlay();
+                points = [];
+            });
+        });
+
+        btnSetSource.addEventListener('click', () => {
+            isPickingSource = !isPickingSource;
+            if (isPickingSource) {
+                btnSetSource.classList.add('active');
+            } else {
+                btnSetSource.classList.remove('active');
+            }
+        });
+
+        upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                img.onload = () => {
+                    mainCanvas.width = img.width;
+                    mainCanvas.height = img.height;
+                    overlayCanvas.width = img.width;
+                    overlayCanvas.height = img.height;
+                    
+                    const containerWidth = container.clientWidth - 20;
+                    if (img.width > containerWidth) {
+                        const fitScale = Math.floor((containerWidth / img.width) * 100);
+                        zoomSlider.value = fitScale;
+                        currentZoom = fitScale / 100;
+                        zoomVal.textContent = fitScale + '%';
+                    } else {
+                        zoomSlider.value = 100;
+                        currentZoom = 1.0;
+                        zoomVal.textContent = '100%';
+                    }
+                    
+                    updateCanvasZoom();
+                    ctx.drawImage(img, 0, 0);
+                    undoStack = [];
+                    btnAutoHeal.classList.add('hidden');
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        zoomSlider.addEventListener('input', (e) => {
+            currentZoom = e.target.value / 100;
+            zoomVal.textContent = e.target.value + '%';
+            updateCanvasZoom();
+        });
+        
+        brushSlider.addEventListener('input', (e) => {
+            cloneBrushSize = parseInt(e.target.value);
+            if(currentTool === 'clone') drawCloneCursor(currentX, currentY);
+        });
+
+        function updateCanvasZoom() {
+            if (!img.src) return;
+            const w = Math.floor(img.width * currentZoom);
+            const h = Math.floor(img.height * currentZoom);
+            mainCanvas.style.width = w + 'px';
+            mainCanvas.style.height = h + 'px';
+            overlayCanvas.style.width = w + 'px';
+            overlayCanvas.style.height = h + 'px';
+        }
+
+        function getMousePos(evt) {
+            const rect = mainCanvas.getBoundingClientRect();
+            const scaleX = mainCanvas.width / rect.width;
+            const scaleY = mainCanvas.height / rect.height;
+            return {
+                x: (evt.clientX - rect.left) * scaleX,
+                y: (evt.clientY - rect.top) * scaleY
+            };
+        }
+
+        function saveUndoState() {
+            undoStack.push(ctx.getImageData(0, 0, mainCanvas.width, mainCanvas.height));
+            if (undoStack.length > MAX_UNDO) undoStack.shift();
+        }
+
+        btnUndo.addEventListener('click', () => {
+            if (undoStack.length > 0) {
+                const prevState = undoStack.pop();
+                ctx.putImageData(prevState, 0, 0);
+                clearOverlay();
+            }
+        });
+
+        container.addEventListener('mousedown', (e) => {
+            if (!img.src) return;
+            const pos = getMousePos(e);
+            
+            if (currentTool === 'clone') {
+                if (e.shiftKey || isPickingSource) {
+                    cloneSourceX = pos.x;
+                    cloneSourceY = pos.y;
+                    isDrawing = false;
+                    isPickingSource = false;
+                    btnSetSource.classList.remove('active');
+                    drawCloneCursor(pos.x, pos.y);
+                    return;
+                } else {
+                    if (cloneSourceX === -1) {
+                        alert("Click 'Grab Background' first (or hold SHIFT) and click a spot of water/grass to use as paint!");
+                        isDrawing = false;
+                        return;
+                    } else {
+                        saveUndoState();
+                        isDrawing = true;
+                        startX = pos.x;
+                        startY = pos.y;
+                        currentX = pos.x;
+                        currentY = pos.y;
+                        applyCloneStamp(pos.x, pos.y);
+                        return;
+                    }
+                }
+            }
+            
+            isDrawing = true;
+            startX = pos.x;
+            startY = pos.y;
+            currentX = pos.x;
+            currentY = pos.y;
+
+            if (currentTool === 'lasso') {
+                points = [{x: startX, y: startY}];
+            }
+        });
+
+        container.addEventListener('mousemove', (e) => {
+            if (!img.src) return;
+            const pos = getMousePos(e);
+            
+            if (!isDrawing) {
+                if (currentTool === 'clone') {
+                    currentX = pos.x;
+                    currentY = pos.y;
+                    drawCloneCursor(pos.x, pos.y);
+                }
+                return;
+            }
+
+            currentX = pos.x;
+            currentY = pos.y;
+
+            if (currentTool === 'rect' || currentTool === 'circle') {
+                drawOverlay();
+            } else if (currentTool === 'lasso') {
+                points.push({x: currentX, y: currentY});
+                drawOverlay();
+            } else if (currentTool === 'clone') {
+                applyCloneStamp(pos.x, pos.y);
+            }
+        });
+
+        container.addEventListener('mouseup', () => {
+            isDrawing = false;
+        });
+
+        container.addEventListener('mouseleave', () => { 
+            isDrawing = false; 
+            if (currentTool === 'clone') {
+                clearOverlay(); 
+            }
+        });
+
+        function clearOverlay() {
+            oCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        }
+
+        function drawCloneCursor(x, y) {
+            clearOverlay();
+            if (x === undefined || y === undefined) return;
+            
+            oCtx.beginPath();
+            oCtx.arc(x, y, cloneBrushSize/2, 0, Math.PI * 2);
+            oCtx.strokeStyle = 'white';
+            oCtx.lineWidth = 2;
+            oCtx.stroke();
+            oCtx.beginPath();
+            oCtx.arc(x, y, cloneBrushSize/2, 0, Math.PI * 2);
+            oCtx.strokeStyle = 'black';
+            oCtx.lineWidth = 1;
+            oCtx.setLineDash([5, 5]);
+            oCtx.stroke();
+            oCtx.setLineDash([]);
+            
+            if (cloneSourceX !== -1 && !isDrawing) {
+                oCtx.beginPath();
+                oCtx.moveTo(cloneSourceX - 5, cloneSourceY);
+                oCtx.lineTo(cloneSourceX + 5, cloneSourceY);
+                oCtx.moveTo(cloneSourceX, cloneSourceY - 5);
+                oCtx.lineTo(cloneSourceX, cloneSourceY + 5);
+                oCtx.strokeStyle = 'red';
+                oCtx.lineWidth = 2;
+                oCtx.stroke();
+            }
+        }
+
+        function applyCloneStamp(destX, destY) {
+            const dx = destX - startX;
+            const dy = destY - startY;
+            const srcX = cloneSourceX + dx;
+            const srcY = cloneSourceY + dy;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(destX, destY, cloneBrushSize/2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.globalAlpha = parseInt(opacitySlider.value) / 100.0;
+            ctx.drawImage(mainCanvas, srcX - cloneBrushSize/2, srcY - cloneBrushSize/2, cloneBrushSize, cloneBrushSize, 
+                                      destX - cloneBrushSize/2, destY - cloneBrushSize/2, cloneBrushSize, cloneBrushSize);
+            ctx.restore();
+        }
+
+        function drawOverlay() {
+            clearOverlay();
+            oCtx.strokeStyle = 'rgba(0, 150, 255, 0.8)';
+            oCtx.lineWidth = 2;
+            oCtx.fillStyle = 'rgba(0, 150, 255, 0.2)';
+
+            if (currentTool === 'rect') {
+                const w = currentX - startX;
+                const h = currentY - startY;
+                oCtx.fillRect(startX, startY, w, h);
+                oCtx.strokeRect(startX, startY, w, h);
+            } else if (currentTool === 'circle') {
+                const radiusX = Math.abs(currentX - startX) / 2;
+                const radiusY = Math.abs(currentY - startY) / 2;
+                const centerX = startX + (currentX - startX) / 2;
+                const centerY = startY + (currentY - startY) / 2;
+                oCtx.beginPath();
+                oCtx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+                oCtx.fill();
+                oCtx.stroke();
+            } else if (currentTool === 'lasso') {
+                if (points.length < 2) return;
+                oCtx.beginPath();
+                oCtx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    oCtx.lineTo(points[i].x, points[i].y);
+                }
+                oCtx.fill();
+                oCtx.stroke();
+            }
+        }
+
+        btnExtract.addEventListener('click', () => {
+            if (!img.src) return alert("Upload an image first.");
+            if (currentTool === 'clone') return alert("Select Rect, Circle, or Lasso to extract.");
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = mainCanvas.width;
+            tempCanvas.height = mainCanvas.height;
+            const tCtx = tempCanvas.getContext('2d');
+
+            tCtx.beginPath();
+            let minX = mainCanvas.width, minY = mainCanvas.height, maxX = 0, maxY = 0;
+
+            if (currentTool === 'rect') {
+                const x = Math.min(startX, currentX);
+                const y = Math.min(startY, currentY);
+                const w = Math.abs(currentX - startX);
+                const h = Math.abs(currentY - startY);
+                tCtx.rect(x, y, w, h);
+                minX = x; minY = y; maxX = x + w; maxY = y + h;
+            } else if (currentTool === 'circle') {
+                const radiusX = Math.abs(currentX - startX) / 2;
+                const radiusY = Math.abs(currentY - startY) / 2;
+                const centerX = startX + (currentX - startX) / 2;
+                const centerY = startY + (currentY - startY) / 2;
+                tCtx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+                minX = centerX - radiusX; minY = centerY - radiusY; 
+                maxX = centerX + radiusX; maxY = centerY + radiusY;
+            } else if (currentTool === 'lasso') {
+                if (points.length < 3) return alert("Draw a selection first.");
+                tCtx.moveTo(points[0].x, points[0].y);
+                for (let p of points) {
+                    tCtx.lineTo(p.x, p.y);
+                    if(p.x < minX) minX = p.x;
+                    if(p.y < minY) minY = p.y;
+                    if(p.x > maxX) maxX = p.x;
+                    if(p.y > maxY) maxY = p.y;
+                }
+                tCtx.closePath();
+            }
+
+            tCtx.clip();
+            tCtx.drawImage(mainCanvas, 0, 0);
+
+            const croppedWidth = maxX - minX;
+            const croppedHeight = maxY - minY;
+            
+            if (croppedWidth <= 0 || croppedHeight <= 0) return alert("Invalid selection. Did you draw a shape?");
+            
+            lastSelectionBounds = { minX, minY, maxX, maxY, w: croppedWidth, h: croppedHeight };
+            btnAutoHeal.classList.remove('hidden');
+
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = croppedWidth;
+            finalCanvas.height = croppedHeight;
+            const fCtx = finalCanvas.getContext('2d');
+            fCtx.drawImage(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
+
+            finalCanvas.toBlob(blob => {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'extracted_asset.png';
+                link.click();
+            }, 'image/png');
+        });
+
+        btnAutoHeal.addEventListener('click', () => {
+            if (!lastSelectionBounds) return;
+            saveUndoState();
+            
+            const b = lastSelectionBounds;
+            let srcX = b.minX - b.w;
+            if (srcX < 0) srcX = b.maxX; 
+            
+            ctx.drawImage(mainCanvas, srcX, b.minY, b.w, b.h, b.minX, b.minY, b.w, b.h);
+            
+            clearOverlay();
+            points = [];
+            startX = currentX = startY = currentY = undefined;
+            lastSelectionBounds = null;
+            btnAutoHeal.classList.add('hidden');
+        });
+
+        btnSaveMap.addEventListener('click', () => {
+            if (!img.src) return alert("Upload an image first.");
+            mainCanvas.toBlob(blob => {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'cleaned_map.jpg';
+                link.click();
+            }, 'image/jpeg', 0.95);
+        });
+    </script>
+
+<script>
+// Pixel Palace <-> Hub bridge
+window.addEventListener('message',function(e){
+  var d=e.data||{};
+  if(d.type==='EXPORT_CANVAS'){
+    var c=document.querySelector('canvas');
+    if(c && c.toDataURL){ try{ parent.postMessage({type:'CANVAS_DATA',from:'extract',data:c.toDataURL()},'*'); }catch(err){} }
+  }
+});
+</script>
+
+</body>
+</html>
+
+
