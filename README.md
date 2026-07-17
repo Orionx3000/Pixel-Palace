@@ -8,7 +8,7 @@ The app is organized as a set of tabs in the left rail. Each tab is either a nat
 
 - Art Hub: central gallery of every image you create or import. Images flow between tools through the hub.
 - Editor: the core pixel editor. Layers, animation frames, full drawing toolset and palette control.
-- Forge: a focused sprite/texture forging tool with its own palette and quick drawing primitives.
+- Forge: a photo to pixel art pixelator. Loads an image or photo and downscales it to pixel art at preset resolutions (16 to 320 pixels), with export scale options (1x, 2x, 4x). This is a converter, not a drawing studio.
 - Studio: the full layered animation studio. Sprite sheets, GIF/APNG export, frames timeline, onion skin.
 - Animator: sprite sheet slicer and animation player. Imports a sheet, slices it into frames, exports GIF and engine ready atlases.
 - Water: watercolor style pixelation. Soft painterly downscale of a photo or image into a palette.
@@ -48,17 +48,22 @@ The Editor is the core drawing surface.
 - Frames timeline: animation strip for the selected layer. Add frames to build an animation.
 - Palette / Presets: current color swatches and quick palette presets (P1 to P5).
 
-## Studio and Forge details
+## Forge details (photo to pixel art)
 
-Forge and Studio share the same drawing primitives tuned for sprite work.
+Forge is a pixelator, not a drawing studio. It converts an existing image into pixel art.
+
+- Preset resolutions: Tiny Sprite 16px, Small 32px, Medium 64px, Large 128px, Console BG 256px, PS1 BG 320px.
+- Export scales: 1x (game engine standard), 2x upscaled, 4x upscaled.
+- Upload an image or photo, pick a target resolution and export the pixelated result.
+
+## Studio details (animation studio)
+
+Studio is the full layered animation workspace.
 
 - Drawing primitives: pencil, eraser, fill, line, rect, circle.
 - Palettes: 16 color palettes with retro and console themes.
 - Frames: add, duplicate, delete and play frames, with onion skin for animation.
 - Upload Photo: loads an image to trace or sample colors from.
-
-Studio extends this into a full layered animation workspace:
-
 - Sprite sheet: all frames tiled into one PNG.
 - GIF / APNG: animated image, composited.
 - Godot .tscn / .tres: scene and resource for Godot.
