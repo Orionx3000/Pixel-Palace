@@ -6,15 +6,15 @@
     "core:default",
     "opener:default",
     "dialog:default",
-    { "identifier": "fs:allow-read-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-read-text-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-write-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-write-text-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-read-dir", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-mkdir", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-exists", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-remove", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-copy-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } },
-    { "identifier": "fs:allow-rename", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**"] } }
+    { "identifier": "fs:allow-read-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-read-text-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-write-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-write-text-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-read-dir", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-mkdir", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-exists", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-remove", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-copy-file", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } },
+    { "identifier": "fs:allow-rename", "scope": { "allow": ["$RESOURCE/**", "$APPLOCALDATA/**", "$APPDATA/**", "$HOME/**", "$DOCUMENT/**", "$TEMP/**", "$DOWNLOAD/**", "**"] } }
   ]
 }

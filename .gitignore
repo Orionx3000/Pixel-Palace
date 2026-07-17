@@ -31,6 +31,14 @@ src-tauri/models/
 *.bin
 ai_sidecar/out.png
 
+# ─── Starbound / OpenStarbound GAME ASSETS (PROPRIETARY, never ship) ─
+*.pak
+packed.pak
+**/openstarbound/assets/
+**/openstarbound/win/assets/
+src-tauri/resources/openstarbound/
+src-tauri/openstarbound/
+
 # ─── Frozen sidecar builds / large exes ─────────────────────────
 ai_sidecar/*.exe
 ai_sidecar/ai_sidecar_big.exe
