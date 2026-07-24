@@ -55,24 +55,27 @@
     </div>
     <div class="ctrl"><label>Output mode</label>
       <div class="seg" id="modeSeg">
-        <button class="btn on" data-mode="sprite">Sprite</button>
-        <button class="btn" data-mode="sheet">Sheet</button>
-        <button class="btn" data-mode="tileset">Tileset</button>
-        <button class="btn" data-mode="scene">Scene</button>
-        <button class="btn" data-mode="map">Map</button>
+        <button class="btn on" data-mode="sprite" title="Generate a single sprite">Sprite</button>
+        <button class="btn" data-mode="sheet" title="Generate a sprite sheet">Sheet</button>
+        <button class="btn" data-mode="tileset" title="Generate a tileset">Tileset</button>
+        <button class="btn" data-mode="scene" title="Generate a scene image">Scene</button>
+        <button class="btn" data-mode="map" title="Generate a map image">Map</button>
       </div>
     </div>
 
-    <div class="box" id="kitSlot" style="border:1px solid #2a3f5c;background:#0a1322">
-      <h3 style="color:#7dd3fc">2D Pixel Toolkit · frame slot</h3>
-      <div class="hint">The anchor model (2D Pixel Toolkit / xiangsu) outputs animation-ready sprite sheets. Set frames + frame size; the sidecar generates each frame as its own native-res sprite and tiles them into a sheet.</div>
-      <div class="twocol">
+    <div class="box" id="kitSlot" style="border:1px solid #2a3f5c;background:#0a1322;opacity:.45">
+      <h3 style="color:#7dd3fc">2D Pixel Toolkit · animation frames</h3>
+      <label class="row" style="font-size:12px;color:#9fb6cf;cursor:pointer">
+        <input type="checkbox" id="animChk" style="width:auto;margin:0 6px 0 0"/> Enable animation frames (Sheet mode)
+      </label>
+      <div class="hint">Off by default. When enabled (and Output mode = Sheet), the sidecar generates multiple frames at the frame size and tiles them into one sprite sheet — animation-ready. Ignored for single sprites.</div>
+      <div class="twocol" id="frameCtrls" style="opacity:.5;pointer-events:none">
         <div class="ctrl"><label>Frames <span class="mono" id="framesVal">4</span></label>
           <input type="range" id="frames" min="1" max="12" step="1" value="4"/></div>
         <div class="ctrl"><label>Frame size <span class="mono" id="frameSizeVal">64</span>px</label>
           <input type="range" id="frameSize" min="16" max="256" step="16" value="64"/></div>
       </div>
-      <div class="hint mono" id="kitNote">Active for Sheet mode (and any 2D Pixel Toolkit preset).</div>
+      <div class="hint mono" id="kitNote">Disabled. Enable the checkbox (Sheet mode) to use frames.</div>
     </div>
 
     <div class="twocol">
@@ -124,13 +127,13 @@
     <div class="ctrl"><label>Seed <span class="mono" id="seedVal"></span></label>
       <div class="row" style="margin:0">
         <input type="number" id="seed" value="0" style="flex:1"/>
-        <button class="btn" id="rnd">&#127922;</button>
+        <button class="btn" id="rnd" title="Random seed">&#127922;</button>
       </div>
     </div>
 
     <div class="row">
-      <button class="btn go" id="genBtn">&#10024; Generate</button>
-      <button class="btn" id="reroll">&#8635; Re-roll</button>
+      <button class="btn go" id="genBtn" title="Generate AI image">&#10024; Generate</button>
+        <button class="btn" id="reroll" title="Re-generate with random seed">&#8635; Re-roll</button>
       <button class="btn" id="startAI" title="Launch the local AI sidecar if it isn't running">&#9881; Start AI</button>
     </div>
     <div class="hint mono" id="status">Idle.</div>
@@ -147,16 +150,16 @@
     </div>
     <div class="box"><h3>Send result to…</h3>
       <div class="sendgrid">
-        <button class="btn" data-send="pixscii">Pixscii</button>
-        <button class="btn" data-send="pixel_palace_editor">Editor</button>
-        <button class="btn" data-send="pixel_forge_studio">Studio</button>
-        <button class="btn" data-send="sprite_animator">Animator</button>
-        <button class="btn" data-send="map_generator">Map Gen</button>
-        <button class="btn" data-send="asset_extractor">Asset Extract</button>
+        <button class="btn" data-send="pixscii" title="Send result to Pixscii">Pixscii</button>
+        <button class="btn" data-send="pixel_palace_editor" title="Send result to Editor">Editor</button>
+        <button class="btn" data-send="pixel_forge_studio" title="Send result to Studio">Studio</button>
+        <button class="btn" data-send="sprite_animator" title="Send result to Animator">Animator</button>
+        <button class="btn" data-send="map_generator" title="Send result to Map Generator">Map Gen</button>
+        <button class="btn" data-send="asset_extractor" title="Send result to Asset Extractor">Asset Extract</button>
       </div>
       <div class="row" style="margin-top:8px">
-        <button class="btn" id="dlPng">&#8595; PNG</button>
-        <button class="btn" id="dlJson">&#8595; JSON (grid)</button>
+        <button class="btn" id="dlPng" title="Download result as PNG">&#8595; PNG</button>
+        <button class="btn" id="dlJson" title="Download result as JSON grid">&#8595; JSON (grid)</button>
       </div>
     </div>
   </div>
@@ -172,14 +175,19 @@ let mode = 'sprite';
 
 function setStatus(t, cls){ $('status').textContent = t; $('status').className = 'hint mono ' + (cls||''); }
 function log(m){ const c=$('console'); const ts=new Date().toLocaleTimeString(); c.textContent += ts+'  '+m+'\n'; c.scrollTop=c.scrollHeight; }
-function aiUp(){ try{ const r=window.__TAURI__?false:false; }catch(_){}; return fetch('http://127.0.0.1:'+PORT+'/health',{signal:AbortSignal.timeout(1500)}).then(x=>x.json()).then(j=>({ok:true,ready:j.ready})).catch(()=>({ok:false,ready:false})); }
+function aiUp(){ return fetch('http://127.0.0.1:'+PORT+'/health',{signal:AbortSignal.timeout(2500)}).then(x=>x.json()).then(j=>({ok:true,ready:j.ready})).catch(()=>({ok:false,ready:false})); }
+let _lastState='';
 async function pollAI(){
   const s=await aiUp();
-  if(s.ok){ log(s.ready? 'sidecar: READY (model loaded)' : 'sidecar: up, loading model…'); }
-  else { log('sidecar: not running — click “Start AI” or just Generate.'); }
+  const st = s.ok ? (s.ready?'ready':'loading') : 'down';
+  if(st!==_lastState){
+    _lastState=st;
+    if(s.ok){ log(s.ready? 'sidecar: READY (model loaded)' : 'sidecar: up, loading model…'); }
+    else { log('sidecar: not running — click “Start AI” or just Generate.'); }
+  }
 }
 window.addEventListener('load', ()=>{ log('AI Studio ready. Pointing at 127.0.0.1:'+PORT); pollAI(); });
-setInterval(pollAI, 5000);
+setInterval(pollAI, 7000);
 function imgToGrid(dataURL, size){
   return new Promise((resolve)=>{ const im=new Image(); im.onload=()=>{
     const c=document.createElement('canvas'); c.width=size; c.height=size; const x=c.getContext('2d');
@@ -208,6 +216,7 @@ async function generate(){
   if(busy){ setStatus('Already generating…'); return; }
   busy = true; document.body.classList.add('busy');
   const w=+$('w').value, h=+$('h').value;
+  const animOn = $('animChk').checked && mode==='sheet';
   const body = JSON.stringify({
     prompt: $('prompt').value,
     negative_prompt: '',
@@ -218,8 +227,8 @@ async function generate(){
     steps: +$('steps').value,
     cfg: +$('cfg').value,
     palette: $('palette').value,
-    frames: +$('frames').value,
-    frame_size: +$('frameSize').value,
+    frames: animOn ? +$('frames').value : 1,
+    frame_size: animOn ? +$('frameSize').value : w,
     seed: +$('seed').value || Math.floor(Math.random()*1e6),
   });
   setStatus('Ensuring local AI sidecar is running ('+w+'×'+h+', '+mode+')…');
@@ -262,18 +271,24 @@ function sendTo(tool){
 }
 
 // wiring
+function syncAnim(){
+  const on = $('animChk').checked && mode==='sheet';
+  $('kitSlot').style.opacity = on ? '1' : '0.45';
+  $('frameCtrls').style.opacity = on ? '1' : '0.5';
+  $('frameCtrls').style.pointerEvents = on ? 'auto' : 'none';
+  $('kitNote').textContent = on
+    ? 'Active: generates '+($('frames').value)+' frames × '+($('frameSize').value)+'px into one sheet.'
+    : 'Disabled. Enable the checkbox + use Sheet mode to generate frames.';
+}
 document.querySelectorAll('#modeSeg .btn').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#modeSeg .btn').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); mode=b.dataset.mode;
   if(mode==='scene'||mode==='map'){ $('w').value=256; $('h').value=256; $('wVal').textContent=256; $('hVal').textContent=256; }
-  // The 2D Pixel Toolkit frame slot only matters for sheet output.
-  $('kitSlot').style.opacity = (mode==='sheet') ? '1' : '0.45';
-  $('kitNote').textContent = (mode==='sheet')
-    ? 'Active: generates '+($('frames').value)+' frames × '+($('frameSize').value)+'px into one sheet.'
-    : 'Frames apply in Sheet mode. For single sprites the frame slot is ignored.';
+  syncAnim();
 });
+$('animChk').onchange = syncAnim;
 ['w','h','steps','cfg'].forEach(id=>$(id).oninput=()=>$(id+'Val').textContent=$(id).value);
-['frames','frameSize'].forEach(id=>$(id).oninput=()=>{ $(id+'Val').textContent=$(id).value; if(mode==='sheet') $('kitNote').textContent='Active: generates '+($('frames').value)+' frames × '+($('frameSize').value)+'px into one sheet.'; });
+['frames','frameSize'].forEach(id=>$(id).oninput=()=>{ $(id+'Val').textContent=$(id).value; syncAnim(); });
 $('rnd').onclick=()=>{ $('seed').value=Math.floor(Math.random()*1e6); };
 $('genBtn').onclick=generate;
 $('reroll').onclick=()=>{ $('seed').value=0; generate(); };

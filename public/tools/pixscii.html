@@ -46,17 +46,17 @@
 
     <div class="ctrl"><label>Generator</label>
       <div class="seg" id="genSeg">
-        <button class="btn on" data-gen="character">Char</button>
-        <button class="btn" data-gen="creature">Creature</button>
-        <button class="btn" data-gen="robot">Robot</button>
-        <button class="btn" data-gen="boss">Boss</button>
-        <button class="btn" data-gen="item">Item</button>
-        <button class="btn" data-gen="tile">Tile</button>
-        <button class="btn" data-gen="plant">Plant</button>
-        <button class="btn" data-gen="weapon">Weapon</button>
-        <button class="btn" data-gen="crystal">Crystal</button>
-        <button class="btn" data-gen="fish">Fish</button>
-        <button class="btn" data-gen="bird">Bird</button>
+        <button class="btn on" data-gen="character" title="Generate character sprite">Char</button>
+        <button class="btn" data-gen="creature" title="Generate creature sprite">Creature</button>
+        <button class="btn" data-gen="robot" title="Generate robot sprite">Robot</button>
+        <button class="btn" data-gen="boss" title="Generate boss sprite">Boss</button>
+        <button class="btn" data-gen="item" title="Generate item sprite">Item</button>
+        <button class="btn" data-gen="tile" title="Generate tile sprite">Tile</button>
+        <button class="btn" data-gen="plant" title="Generate plant sprite">Plant</button>
+        <button class="btn" data-gen="weapon" title="Generate weapon sprite">Weapon</button>
+        <button class="btn" data-gen="crystal" title="Generate crystal sprite">Crystal</button>
+        <button class="btn" data-gen="fish" title="Generate fish sprite">Fish</button>
+        <button class="btn" data-gen="bird" title="Generate bird sprite">Bird</button>
       </div>
     </div>
 
@@ -69,10 +69,10 @@
       </div>
       <div class="ctrl"><label>Size</label>
         <div class="seg" id="sizeSeg">
-          <button class="btn" data-size="16">16</button>
-          <button class="btn on" data-size="24">24</button>
-          <button class="btn" data-size="32">32</button>
-          <button class="btn" data-size="48">48</button>
+          <button class="btn" data-size="16" title="Set sprite size to 16px">16</button>
+          <button class="btn on" data-size="24" title="Set sprite size to 24px">24</button>
+          <button class="btn" data-size="32" title="Set sprite size to 32px">32</button>
+          <button class="btn" data-size="48" title="Set sprite size to 48px">48</button>
         </div>
       </div>
     </div>
@@ -98,20 +98,20 @@
 
     <div class="ctrl"><label>Animation</label>
       <div class="seg" id="animSeg">
-        <button class="btn on" data-anim="idle">Idle</button>
-        <button class="btn" data-anim="walk">Walk</button>
-        <button class="btn" data-anim="attack">Attack</button>
-        <button class="btn" data-anim="fly">Fly</button>
-        <button class="btn" data-anim="static">Static</button>
+        <button class="btn on" data-anim="idle" title="Idle animation">Idle</button>
+        <button class="btn" data-anim="walk" title="Walk animation">Walk</button>
+        <button class="btn" data-anim="attack" title="Attack animation">Attack</button>
+        <button class="btn" data-anim="fly" title="Fly animation">Fly</button>
+        <button class="btn" data-anim="static" title="Static (no animation)">Static</button>
       </div>
     </div>
 
     <div class="ctrl"><label>Frames</label>
       <div class="seg" id="frameSeg">
-        <button class="btn" data-frames="1">1</button>
-        <button class="btn on" data-frames="4">4</button>
-        <button class="btn" data-frames="6">6</button>
-        <button class="btn" data-frames="8">8</button>
+        <button class="btn" data-frames="1" title="Generate 1 frame">1</button>
+        <button class="btn on" data-frames="4" title="Generate 4 frames">4</button>
+        <button class="btn" data-frames="6" title="Generate 6 frames">6</button>
+        <button class="btn" data-frames="8" title="Generate 8 frames">8</button>
       </div>
     </div>
 
@@ -187,21 +187,22 @@
     </div>
 
     <div class="row">
-      <button class="btn on" id="gen">&#9881; Generate</button>
-      <button class="btn" id="regen">&#8635; Re-roll</button>
+      <button class="btn on" id="gen" title="Generate sprite with current settings">&#9881; Generate</button>
+      <button class="btn" id="regen" title="Re-generate with new random seed">&#8635; Re-roll</button>
       <button class="btn warn" id="genAI" title="Uses the local AI sidecar if running">&#10024; Generate (AI)</button>
+      <label class="btn" id="importBtn" style="cursor:pointer" title="Import an image file">&#128193; Import<input type="file" accept="image/*" id="importFile" style="display:none"/></label>
     </div>
     <div class="row">
-      <button class="btn snd" id="sendEditor">&#9656; Editor</button>
-      <button class="btn snd" id="sendStudio">&#9656; Studio</button>
-      <button class="btn snd" id="sendAnimator">&#9656; Animator</button>
+      <button class="btn snd" id="sendEditor" title="Send sprite sheet to Editor">&#9656; Editor</button>
+      <button class="btn snd" id="sendStudio" title="Send sprite sheet to Studio">&#9656; Studio</button>
+      <button class="btn snd" id="sendAnimator" title="Send sprite sheet to Animator">&#9656; Animator</button>
     </div>
     <div class="row">
-      <button class="btn" id="dlPng">&#8595; Sheet PNG</button>
-      <button class="btn" id="dlJson">&#8595; JSON</button>
-      <button class="btn" id="dlGodot">&#8595; Godot</button>
-      <button class="btn" id="dlSolarus">&#8595; Solarus</button>
-      <button class="btn" id="dlStarbound">&#8595; Starbound</button>
+      <button class="btn" id="dlPng" title="Download sprite sheet as PNG">&#8595; Sheet PNG</button>
+      <button class="btn" id="dlJson" title="Download sprite metadata as JSON">&#8595; JSON</button>
+      <button class="btn" id="dlGodot" title="Download Godot resource file">&#8595; Godot</button>
+      <button class="btn" id="dlSolarus" title="Download Solarus data file">&#8595; Solarus</button>
+      <button class="btn" id="dlStarbound" title="Download Starbound data file">&#8595; Starbound</button>
     </div>
     <div class="hint mono" id="status">Ready.</div>
   </div>
@@ -216,9 +217,9 @@
     </div>
     <div class="box"><h3>Frame scrubber</h3>
       <div class="row">
-        <button class="btn" id="prevF">&#9664; Prev</button>
-        <button class="btn" id="playF">&#9654; Play</button>
-        <button class="btn" id="nextF">Next &#9654;</button>
+        <button class="btn" id="prevF" title="Go to previous frame">&#9664; Prev</button>
+        <button class="btn" id="playF" title="Play or pause animation">&#9654; Play</button>
+        <button class="btn" id="nextF" title="Go to next frame">Next &#9654;</button>
         <span class="mono" id="frameInfo"></span>
       </div>
       <canvas id="frame" width="24" height="24" style="width:min(60%,240px);height:auto;background:#0a0f1a"></canvas>
@@ -581,6 +582,22 @@ $('dlStarbound').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.s
 $('sendEditor').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{editor:lastSheet}},'*'); $('status').textContent='Sent sheet to Editor.'; };
 $('sendStudio').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{studio:lastSheet}},'*'); $('status').textContent='Sent sheet to Studio.'; };
 $('sendAnimator').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{animator:lastSheet}},'*'); $('status').textContent='Sent sheet to Animator.'; };
+$('importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{
+  const im=new Image(); im.onload=()=>{
+    const n=Math.max(im.width,im.height);
+    prev.width=n; prev.height=n; pctx.imageSmoothingEnabled=false;
+    pctx.clearRect(0,0,n,n); pctx.drawImage(im,0,0);
+    frame.width=n; frame.height=n; fctx.imageSmoothingEnabled=false;
+    fctx.clearRect(0,0,n,n); fctx.drawImage(im,0,0);
+    sheet.width=n*S.frames; sheet.height=n; sctx.imageSmoothingEnabled=false;
+    sctx.clearRect(0,0,sheet.width,n);
+    for(let i=0;i<S.frames;i++) sctx.drawImage(im,i*n,0);
+    lastSheet=sheet.toDataURL('image/png');
+    lastFrames=[]; curFrame=0;
+    $('frameInfo').textContent='frame 1/'+S.frames+' · '+n+'px native';
+    $('status').textContent='Imported '+f.name+' ('+im.width+'×'+im.height+'px).';
+  }; im.src=r.result;
+}; r.readAsDataURL(f); e.target.value=''; };
 
 renderPal(); generate();
 </script>

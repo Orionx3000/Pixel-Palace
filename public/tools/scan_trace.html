@@ -93,7 +93,7 @@ function process(){
   // optional blur via temp canvas
   const blur=+$('bl').value;
   let data;
-  if(blur>0){ const t=document.createElement('canvas'); t.width=W;t.height=H; const tc=t.getContext('2d'); tc.filter='blur('+blur+'px)'; tc.drawImage(sctx,0,0); data=tc.getImageData(0,0,W,H); }
+  if(blur>0){ const t=document.createElement('canvas'); t.width=W;t.height=H; const tc=t.getContext('2d'); tc.filter='blur('+blur+'px)'; tc.drawImage(src,0,0); data=tc.getImageData(0,0,W,H); }
   else data=sctx.getImageData(0,0,W,H);
   const thr=+$('th').value;
   const o=octx.createImageData(W,H);

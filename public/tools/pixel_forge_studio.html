@@ -308,12 +308,16 @@ function App() {
     const [selectedColor, setSelectedColor] = useState('#ffffff');
     // ─── Color log: tracks every color used, in order ───
     const [colorLog, setColorLog] = useState([]);
-    const pickColor = (c) => { setSelectedColor(c); setColorLog(prev => [...prev, c].slice(-64)); };
+    const pickColor = (c) => { setSelectedColor(c); };
+    const logColor = (c) => { setSelectedColor(c); setColorLog(prev => [...prev, c].slice(-64)); };
     const [tool, setTool] = useState('pencil');
     const [brushSize, setBrushSize] = useState(1);
     const [zoom, setZoom] = useState(100);
+    const [cursorStyle, setCursorStyle] = useState('cross');
+    const [cursorPos, setCursorPos] = useState(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [drawOrigin, setDrawOrigin] = useState(null);
+    const [ndTick, setNdTick] = useState(0);
 
     // Animation
     const [frames, setFrames] = useState([]);
@@ -343,6 +347,7 @@ function App() {
 
 
     const canvasRef = useRef(null);
+    const overlayRef = useRef(null);
     const animRef = useRef(null);
     const fileRef = useRef(null);
 
@@ -400,6 +405,31 @@ function App() {
         if (!c || frames.length === 0) return;
         if (currentFrame < frames.length) dataToFrame(c, frames[currentFrame]);
     }, [currentFrame]);
+
+    // ─── Custom cursor overlay (draws on separate overlay canvas) ───────
+    useEffect(() => {
+        const oc = overlayRef.current; if(!oc) return;
+        const c = canvasRef.current; if(!c) return;
+        const displayW = Math.min(480, 480*zoom/100);
+        const displayH = displayW;
+        if(oc.width !== Math.round(displayW) || oc.height !== Math.round(displayH)){ oc.width = Math.round(displayW); oc.height = Math.round(displayH); }
+        const octx = oc.getContext('2d');
+        octx.clearRect(0, 0, oc.width, oc.height);
+        if(!cursorPos || cursorStyle==='none') return;
+        const scale = displayW / c.width;
+        const cx = cursorPos.x*scale+scale/2, cy = cursorPos.y*scale+scale/2;
+        if(cursorStyle==='cross'){
+            const s = Math.max(6,scale*0.8), gap = Math.max(1,scale*0.15);
+            octx.strokeStyle='rgba(0,0,0,0.7)';octx.lineWidth=1.5;
+            octx.beginPath();octx.moveTo(cx-s,cy);octx.lineTo(cx-gap,cy);octx.moveTo(cx+gap,cy);octx.lineTo(cx+s,cy);octx.moveTo(cx,cy-s);octx.lineTo(cx,cy-gap);octx.moveTo(cx,cy+gap);octx.lineTo(cx,cy+s);octx.stroke();
+            octx.strokeStyle='rgba(255,255,255,0.9)';octx.lineWidth=1;
+            octx.beginPath();octx.moveTo(cx-s,cy);octx.lineTo(cx-gap,cy);octx.moveTo(cx+gap,cy);octx.lineTo(cx+s,cy);octx.moveTo(cx,cy-s);octx.lineTo(cx,cy-gap);octx.moveTo(cx,cy+gap);octx.lineTo(cx,cy+s);octx.stroke();
+        } else if(cursorStyle==='dot'){
+            const r = Math.max(3,scale*0.35);
+            octx.fillStyle='rgba(0,0,0,0.6)';octx.beginPath();octx.arc(cx+1,cy+1,r,0,7);octx.fill();
+            octx.fillStyle='rgba(255,255,255,0.95)';octx.beginPath();octx.arc(cx,cy,r,0,7);octx.fill();
+        }
+    }, [cursorPos, cursorStyle, zoom]);
 
     // ─── Mouse-wheel zoom on canvas ──────────────────────────────────────
     const handleWheel = (e) => {
@@ -543,20 +573,49 @@ function App() {
         setRedoStack([]);
     }, []);
 
+    const parseHex=(hex)=>{const h=hex.replace('#','');return [parseInt(h.substring(0,2),16),parseInt(h.substring(2,4),16),parseInt(h.substring(4,6),16)];};
+    const ndRef=useRef(false);
+    useEffect(()=>{ ndRef.current=!!(window.parent&&window.parent.PP&&window.parent.PP.options&&window.parent.PP.options.noDoubles); },[tool,brushSize,ndTick]);
+
+    // Sync cursorStyle from parent PP.options
+    useEffect(()=>{
+        try{
+            const pp=window.parent&&window.parent.PP;
+            if(pp&&pp.options&&pp.options.cursorStyle) setCursorStyle(pp.options.cursorStyle);
+        }catch(e){}
+    },[]);
+
     const drawAt = (p) => {
         if (!p) return;
         const c = canvasRef.current;
         const ctx = c.getContext('2d', { willReadFrequently: true });
         const bw = Math.max(1, Math.floor(brushSize));
         if (tool === 'pencil') {
-            ctx.fillStyle = selectedColor;
-            if (bw <= 1) ctx.fillRect(p.x, p.y, 1, 1);
-            else {
-                const half = Math.floor(bw/2);
-                if (brushSize <= 3) ctx.fillRect(p.x-half, p.y-half, bw, bw);
+            if (ndRef.current) {
+                const [cr,cg,cb]=parseHex(selectedColor);
+                const putNoDupe=(x,y)=>{
+                    if(x<0||y<0||x>=c.width||y>=c.height)return;
+                    const d=ctx.getImageData(x,y,1,1).data;
+                    if(d[0]===cr&&d[1]===cg&&d[2]===cb&&d[3]!==0)return;
+                    ctx.fillStyle=selectedColor; ctx.fillRect(x,y,1,1);
+                };
+                if(bw<=1) putNoDupe(p.x,p.y);
+                else{
+                    const half=Math.floor(bw/2);
+                    if(brushSize<=3){for(let dx=0;dx<bw;dx++)for(let dy=0;dy<bw;dy++)putNoDupe(p.x-half+dx,p.y-half+dy);}
+                    else for(let dx=-half;dx<=half;dx++)for(let dy=-half;dy<=half;dy++)
+                        if(dx*dx+dy*dy<=half*half) putNoDupe(p.x+dx,p.y+dy);
+                }
+            } else {
+                ctx.fillStyle = selectedColor;
+                if (bw <= 1) ctx.fillRect(p.x, p.y, 1, 1);
                 else {
-                    for (let dx=-half; dx<=half; dx++) for (let dy=-half; dy<=half; dy++) {
-                        if (dx*dx+dy*dy <= half*half) ctx.fillRect(p.x+dx, p.y+dy, 1, 1);
+                    const half = Math.floor(bw/2);
+                    if (brushSize <= 3) ctx.fillRect(p.x-half, p.y-half, bw, bw);
+                    else {
+                        for (let dx=-half; dx<=half; dx++) for (let dy=-half; dy<=half; dy++) {
+                            if (dx*dx+dy*dy <= half*half) ctx.fillRect(p.x+dx, p.y+dy, 1, 1);
+                        }
                     }
                 }
             }
@@ -613,7 +672,7 @@ function App() {
         if (tool === 'eyedropper') {
             const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
             const px = ctx.getImageData(p.x, p.y, 1, 1).data;
-            if (px[3] > 0) pickColor(rgbToHex(px[0], px[1], px[2]));
+            if (px[3] > 0) logColor(rgbToHex(px[0], px[1], px[2]));
             return;
         }
         if (['line','rect','rect_outline','circle','circle_outline','fill'].includes(tool)) {
@@ -635,6 +694,7 @@ function App() {
         if (e.touches) e.preventDefault();
         const p = getPos(e);
         if (!p) return;
+        if(cursorStyle!=='none') setCursorPos(p);
         if (isDrawing && ['line','rect','rect_outline','circle','circle_outline'].includes(tool) && drawOrigin) {
             const c = canvasRef.current;
             const ctx = c.getContext('2d');
@@ -781,6 +841,18 @@ function App() {
         ctx.putImageData(next,0,0);
     };
 
+    // Send undo/redo status to parent (top bar buttons)
+    useEffect(()=>{
+        try{ parent.postMessage({type:'UNDO_STATUS',canUndo:undoStack.length>0,canRedo:redoStack.length>0},'*'); }catch(e){}
+    },[undoStack,redoStack]);
+
+    // Listen for UNDO/REDO from parent (top bar buttons)
+    useEffect(()=>{
+        const h=(e)=>{ const d=e.data||{}; if(d.type==='UNDO') undo(); if(d.type==='REDO') redo(); };
+        window.addEventListener('message',h);
+        return ()=>window.removeEventListener('message',h);
+    },[undo,redo]);
+
 
     const addFrameFromCanvas = (srcCanvas) => {
         const c = canvasRef.current;
@@ -831,7 +903,7 @@ function App() {
                       const ctx = c.getContext('2d');
                       ctx.fillStyle='#000'; ctx.fillRect(0,0,docW,docH);
                       saveFrameState();
-                  }} className="text-[10px] px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-white ml-2">Apply</button>
+                  }} className="text-[10px] px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-white ml-2" title="Apply canvas size">Apply</button>
               </div>
           </div>
 
@@ -858,14 +930,20 @@ function App() {
                     </select>
                 </div>
                 <div className="flex items-center gap-1">
-                    <button onClick={()=>setZoom(Math.max(25,zoom-25))} className="tool-btn">−</button>
+                    <button onClick={()=>setZoom(Math.max(25,zoom-25))} className="tool-btn" title="Zoom out">−</button>
                     <span className="text-xs font-mono w-10 text-center">{zoom}%</span>
-                    <button onClick={()=>setZoom(Math.min(1000,zoom+25))} className="tool-btn">+</button>
+                    <button onClick={()=>setZoom(Math.min(1000,zoom+25))} className="tool-btn" title="Zoom in">+</button>
                 </div>
                 <div className="flex gap-1">
-                    <button onClick={undo} disabled={!undoStack.length} className="tool-btn" style={undoStack.length?{}:{opacity:.3}}>↩</button>
-                    <button onClick={redo} disabled={!redoStack.length} className="tool-btn" style={redoStack.length?{}:{opacity:.3}}>↪</button>
-                    <button onClick={clearCanvas} className="tool-btn text-red-400 hover:text-red-300">🗑️</button>
+                    <button onClick={()=>setCursorStyle(s=>s==='cross'?'dot':s==='dot'?'none':'cross')} className="tool-btn text-[10px]" title={"Cursor: "+cursorStyle}>{cursorStyle==='cross'?'﹢ Cross':cursorStyle==='dot'?'● Dot':'◌ None'}</button>
+                </div>
+                <div className="flex gap-1">
+                    <button onClick={()=>{window.parent.PP.options.noDoubles=!window.parent.PP.options.noDoubles;ndRef.current=window.parent.PP.options.noDoubles;setNdTick(t=>t+1);}} className="tool-btn text-[10px]" title="No Doubles: skip same-color pixels">{ndRef.current?'◼ NoDup':'◻ NoDup'}</button>
+                </div>
+                <div className="flex gap-1">
+                    <button onClick={undo} disabled={!undoStack.length} className="tool-btn" style={undoStack.length?{}:{opacity:.3}} title="Undo">↩</button>
+                    <button onClick={redo} disabled={!redoStack.length} className="tool-btn" style={redoStack.length?{}:{opacity:.3}} title="Redo">↪</button>
+                    <button onClick={clearCanvas} className="tool-btn text-red-400 hover:text-red-300" title="Clear canvas">🗑️</button>
                 </div>
                 
             
@@ -909,7 +987,7 @@ function App() {
                             <div className="text-center p-8">
                                 <div className="flex gap-4 justify-center mb-3">
                                     <button onClick={()=>fileRef.current?.click()}
-                                        className="flex flex-col items-center gap-2 p-6 bg-neutral-700 hover:bg-neutral-600 rounded-xl">
+                                        className="flex flex-col items-center gap-2 p-6 bg-neutral-700 hover:bg-neutral-600 rounded-xl" title="Upload photo to pixelate">
                                         <span className="text-3xl">📁</span>
                                         <span className="font-bold">Upload Photo</span>
                                     </button>
@@ -919,12 +997,16 @@ function App() {
                             </div>
                         )}
                         <div className="w-full h-full overflow-auto p-6 flex items-start justify-center">
+                            <div style={{position:'relative',display:'inline-block'}}>
                             <canvas ref={canvasRef}
-                                style={{ width: `${Math.min(480, 480*zoom/100)}px`, imageRendering:'pixelated', backgroundColor:'transparent' }}
-                                className={`shadow-2xl border border-neutral-700 ${isProcessing?'opacity-40':'opacity-100'} ${tool==='eraser'?'cursor-cell':'cursor-crosshair'}`}
-                                onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}
+                                style={{ width: `${Math.min(480, 480*zoom/100)}px`, imageRendering:'pixelated', backgroundColor:'transparent', display:'block' }}
+                                className={`shadow-2xl border border-neutral-700 ${isProcessing?'opacity-40':'opacity-100'} ${cursorStyle!=='none'?'cursor-none':tool==='eraser'?'cursor-cell':'cursor-crosshair'}`}
+                                onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={()=>{handleUp();setCursorPos(null);}}
                                 onTouchStart={handleDown} onTouchMove={handleMove} onTouchEnd={handleUp}
                                 onContextMenu={e=>e.preventDefault()} />
+                            <canvas ref={overlayRef}
+                                style={{ position:'absolute', top:0, left:0, width:`${Math.min(480, 480*zoom/100)}px`, height:`${Math.min(480, 480*zoom/100)}px`, pointerEvents:'none', imageRendering:'pixelated' }} />
+                            </div>
                         </div>
                         {isProcessing && (
                             <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
@@ -933,7 +1015,7 @@ function App() {
                         )}
                         {sourceImage && (
                             <button onClick={()=>setSourceImage(null)}
-                                className="absolute top-3 right-3 px-2.5 py-1 bg-neutral-900/80 hover:bg-red-500/80 text-white rounded-lg text-xs z-20">
+                                className="absolute top-3 right-3 px-2.5 py-1 bg-neutral-900/80 hover:bg-red-500/80 text-white rounded-lg text-xs z-20" title="Remove source image">
                                 ✕
                             </button>
                         )}
@@ -945,11 +1027,11 @@ function App() {
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-neutral-400 uppercase">Frames</span>
                                 <span className="text-xs text-neutral-500">{frames.length}</span>
-                                <button onClick={addFrame} className="tool-btn text-xs !py-1 !px-2">+ Add</button>
-                                <button onClick={duplicateFrame} className="tool-btn text-xs !py-1 !px-2" disabled={!frames.length}>⧉ Dup</button>
+                                <button onClick={addFrame} className="tool-btn text-xs !py-1 !px-2" title="Add frame">+ Add</button>
+                                <button onClick={duplicateFrame} className="tool-btn text-xs !py-1 !px-2" disabled={!frames.length} title="Duplicate frame">⧉ Dup</button>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button onClick={()=>setPlaying(!playing)} className={`tool-btn text-xs !py-1 !px-3 ${playing?'bg-red-500 text-white':'bg-neutral-700'}`}>
+                                <button onClick={()=>setPlaying(!playing)} className={`tool-btn text-xs !py-1 !px-3 ${playing?'bg-red-500 text-white':'bg-neutral-700'}`} title={playing?'Stop animation':'Play animation'}>
                                     {playing ? '⏹ Stop' : '▶ Play'}
                                 </button>
                                 <label className="text-xs text-neutral-400">FPS</label>
@@ -974,12 +1056,12 @@ function App() {
                                             style={{imageRendering:'pixelated'}} />
                                         <button onClick={()=>deleteFrame(idx)}
                                             className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full text-[10px] leading-none text-white flex items-center justify-center hover:bg-red-400"
-                                            style={{display:frames.length>1?'':'none'}}>×</button>
+                                            style={{display:frames.length>1?'':'none'}} title="Delete frame">×</button>
                                     </div>
                                     <div className="flex gap-1 items-center">
-                                        <button onClick={()=>moveFrame(idx,idx-1)} className="text-[10px] text-neutral-500 hover:text-white px-0.5">◀</button>
+                                        <button onClick={()=>moveFrame(idx,idx-1)} className="text-[10px] text-neutral-500 hover:text-white px-0.5" title="Move frame left">◀</button>
                                         <span className="text-[10px] text-neutral-500 font-mono">{idx+1}</span>
-                                        <button onClick={()=>moveFrame(idx,idx+1)} className="text-[10px] text-neutral-500 hover:text-white px-0.5">▶</button>
+                                        <button onClick={()=>moveFrame(idx,idx+1)} className="text-[10px] text-neutral-500 hover:text-white px-0.5" title="Move frame right">▶</button>
                                     </div>
                                 </div>
                             ))}
@@ -992,7 +1074,7 @@ function App() {
                     {/* PALETTE */}
                     <div className="bg-neutral-800 border border-neutral-700 rounded-xl p-3">
                         <button onClick={()=>setShowPalettes(!showPalettes)}
-                            className="flex items-center gap-2 w-full text-left font-bold text-sm mb-2">
+                            className="flex items-center gap-2 w-full text-left font-bold text-sm mb-2" title="Toggle palette panel">
                             <span>🎨</span> Palettes ({palette.length} colors) {showPalettes?'▼':'▶'}
                         </button>
                         {showPalettes && (
@@ -1003,7 +1085,7 @@ function App() {
                                 <div className="flex flex-wrap gap-1 mb-2">
                                     {CATEGORIES.map(cat => (
                                         <button key={cat} onClick={()=>setActivePaletteCat(cat)}
-                                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${activePaletteCat===cat?'bg-green-500 text-white':'bg-neutral-700 text-neutral-300 hover:bg-neutral-600'}`}>
+                                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${activePaletteCat===cat?'bg-green-500 text-white':'bg-neutral-700 text-neutral-300 hover:bg-neutral-600'}`} title={"Show "+cat+" palettes"}>
                                             {cat}
                                         </button>
                                     ))}
@@ -1040,9 +1122,9 @@ function App() {
                             <div className="w-6 h-6 rounded border border-neutral-500 shrink-0" style={{backgroundColor:selectedColor}} />
                             <span className="text-xs font-mono text-neutral-400">{selectedColor}</span>
                                 <div className="flex gap-1 ml-auto">
-                                <button onClick={()=>pickColor(adjustColor(selectedColor,15))} className="text-[10px] px-1.5 py-0.5 bg-neutral-700 hover:bg-neutral-500 rounded font-medium">+L</button>
-                                <button onClick={()=>pickColor(adjustColor(selectedColor,-15))} className="text-[10px] px-1.5 py-0.5 bg-neutral-700 hover:bg-neutral-500 rounded font-medium">-D</button>
-                                <input type="color" value={selectedColor} onChange={e=>pickColor(e.target.value)} className="w-7 h-7 bg-transparent border border-neutral-600 rounded cursor-pointer p-0" title="Native color picker" />
+                                <button onClick={()=>logColor(adjustColor(selectedColor,15))} className="text-[10px] px-1.5 py-0.5 bg-neutral-700 hover:bg-neutral-500 rounded font-medium" title="Lighten color">+L</button>
+                                <button onClick={()=>logColor(adjustColor(selectedColor,-15))} className="text-[10px] px-1.5 py-0.5 bg-neutral-700 hover:bg-neutral-500 rounded font-medium" title="Darken color">-D</button>
+                                <input type="color" value={selectedColor} onChange={e=>logColor(e.target.value)} className="w-7 h-7 bg-transparent border border-neutral-600 rounded cursor-pointer p-0" title="Native color picker" />
                             </div>
                             {/* SHADE / HUE GRADIENT FINDER — pick nearby shades from the active color */}
                             <div className="mt-2">
@@ -1050,22 +1132,25 @@ function App() {
                                 <div className="grid gap-[2px]" style={{gridTemplateColumns:'repeat(9, 1fr)'}}>
                                     {(() => {
                                         const {r,g,b}=hexToRgb(selectedColor); const [h,s,v]=rgb2hsv(r,g,b);
-                                        const rows=[-0.30,-0.20,-0.10,0,0.10,0.20,0.30]; const hues=[-60,-40,-20,0,20,40,60,80,120];
+                                        const rows=[-0.40,-0.25,-0.10,0,0.10,0.25,0.40]; const hues=[-90,-60,-30,0,30,60,90,120,-120];
                                         return rows.flatMap(dl => hues.map(dh => {
-                                            const col = rgbToHex(...hsv2rgb((h+dh+360)%360, clamp(s + (dh?0.05*Math.sign(dh):0),0,1), clamp(v+dl,0,1)));
-                                            return <button key={dl+':'+dh} onClick={()=>pickColor(col)} title={`${col} (h${dh>0?'+':''}${dh}, l${dl>0?'+':''}${dl})`} className="w-full aspect-square rounded-sm border border-neutral-800 hover:border-white hover:z-10" style={{backgroundColor:col}} />;
+                                            const newS = clamp(s + (dh!==0?0.15*Math.sign(dh):0),0,1);
+                                            const newV = clamp(v+dl,0,1);
+                                            const newH = (h+dh+360)%360;
+                                            const col = rgbToHex(...hsv2rgb(newH, newS, newV));
+                                            return <button key={dl+':'+dh} onClick={()=>logColor(col)} title={`${col} (h${dh>0?'+':''}${dh}, l${dl>0?'+':''}${(dl*100|0)+'%'})`} className="w-full aspect-square rounded-sm border border-neutral-800 hover:border-white hover:z-10" style={{backgroundColor:col}} />;
                                         }));
                                     })()}
                                 </div>
                                 <div className="flex items-center gap-2 mt-2">
                                     <span className="text-[10px] text-neutral-500">Hue</span>
-                                    <input type="range" min="0" max="360" value={Math.round(rgb2hsv(...Object.values(hexToRgb(selectedColor)))[0]*360)} onChange={e=>{ const [h,s,v]=rgb2hsv(...Object.values(hexToRgb(selectedColor))); pickColor(rgbToHex(...hsv2rgb(+e.target.value/360,s,v))); }} className="flex-1" />
+                                    <input type="range" min="0" max="360" value={Math.round(rgb2hsv(...Object.values(hexToRgb(selectedColor)))[0])} onChange={e=>{ const [h,s,v]=rgb2hsv(...Object.values(hexToRgb(selectedColor))); setSelectedColor(rgbToHex(...hsv2rgb(+e.target.value,s,v))); }} className="flex-1" />
                                 </div>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
                             {palette.map((c, i) => (
-                                <button key={i} onClick={()=>{pickColor(c);setTool('pencil')}}
+                                <button key={i} onClick={()=>{logColor(c);setTool('pencil')}}
                                     className={`cswatch ${selectedColor===c?'active':''}`}
                                     style={{backgroundColor:c}} title={c} />
                             ))}
@@ -1074,7 +1159,7 @@ function App() {
                         <div className="mt-2 pt-2 border-t border-neutral-700">
                             <div className="flex items-center justify-between mb-1">
                                 <span className="text-[10px] uppercase tracking-wider text-neutral-500">Color Log ({colorLog.length})</span>
-                                {colorLog.length>0 && <button onClick={()=>setColorLog([])} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-700 hover:bg-neutral-500 text-neutral-300">Clear</button>}
+                                {colorLog.length>0 && <button onClick={()=>setColorLog([])} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-700 hover:bg-neutral-500 text-neutral-300" title="Clear color log">Clear</button>}
                             </div>
                             <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
                                 {colorLog.length===0 && <span className="text-[9px] text-neutral-600">Colors you use appear here, in order.</span>}
@@ -1107,7 +1192,7 @@ function App() {
                             </div>
                         </div>
                         <button onClick={()=>setShowSave(true)}
-                            className="w-full py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-indigo-600 hover:opacity-90 text-white shadow-lg shadow-blue-900/30 transition-all active:scale-95">
+                            className="w-full py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-indigo-600 hover:opacity-90 text-white shadow-lg shadow-blue-900/30 transition-all active:scale-95" title="Open export dialog">
                             🎬 Export
                         </button>
                         <div className="text-[10px] text-neutral-600 text-center">
@@ -1134,9 +1219,9 @@ function App() {
                         </div>
                         <div className="flex gap-3 pt-1">
                             <button onClick={()=>setShowSave(false)}
-                                className="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 rounded-xl font-bold text-sm">Cancel</button>
+                                className="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 rounded-xl font-bold text-sm" title="Cancel export">Cancel</button>
                             <button onClick={handleExport}
-                                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm shadow-lg">Export</button>
+                                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm shadow-lg" title="Confirm and export">Export</button>
                         </div>
                     </div>
                 </div>

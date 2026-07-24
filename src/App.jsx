@@ -8,27 +8,24 @@ import { writeTextFile, writeFile, readTextFile, readFile } from '@tauri-apps/pl
 window.__tauriSave = async (data, defaultName, extension) => {
   try {
     const isImage = extension === 'png' || extension === 'gif' || defaultName.endsWith('.png');
-    const filters = extension === 'png' ? [{name: 'Image', extensions: ['png']}] 
+    const filters = extension === 'png' ? [{name: 'Image', extensions: ['png']}]
                   : extension === 'pproj' ? [{name: 'Pixel Palace Project', extensions: ['pproj']}]
                   : extension === 'json' ? [{name: 'JSON File', extensions: ['json']}]
                   : extension === 'gif' ? [{name: 'GIF', extensions: ['gif']}]
                   : extension === 'tres' ? [{name: 'Godot TileSet', extensions: ['tres']}]
                   : [];
-    
     const filePath = await tauriSave({ defaultPath: defaultName, filters });
-    if (!filePath) return; 
-
-    if (isImage || data.startsWith('data:image')) {
-      const res = await fetch(data); 
+    if (!filePath) return;
+    if (isImage || (typeof data === 'string' && data.startsWith('data:image'))) {
+      const res = await fetch(data);
       const buffer = await res.arrayBuffer();
       await writeFile(filePath, new Uint8Array(buffer));
     } else {
-      await writeTextFile(filePath, data); 
+      await writeTextFile(filePath, data);
     }
     return filePath;
   } catch(e) {
     console.error("Tauri Save Error", e);
-    // Surface as a toast rather than a blocking alert; persistence is also handled by autosave.
     if (window.__ppToast) window.__ppToast("Save cancelled or failed");
   }
 };
@@ -40,7 +37,6 @@ window.__tauriLoad = async (extension) => {
                   : [];
     const filePath = await tauriOpen({ multiple: false, filters });
     if (!filePath) return null;
-    
     if (extension === 'pproj' || extension === 'json' || extension === 'txt') {
       const text = await readTextFile(filePath);
       return text;
@@ -63,28 +59,11 @@ window.__tauriLoad = async (extension) => {
 import './index.css';
 
 
-function AIGenerator({ activeTab, onGenerated, setActive }) {
-  // Lightweight launcher: opens the generalized AI Studio tab (which talks to the
-  // local sidecar over HTTP and can target sprites, scenes, maps, sheets, tilesets).
-  if (activeTab === 'aistudio') return null;
-  return (
-    <button
-      className="neon-btn mg"
-      style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 9999, boxShadow: '0 0 20px rgba(255,78,205,0.4)' }}
-      onClick={() => setActive('aistudio')}
-      title="Open the generalized local AI Studio"
-    >
-      ✨ AI Studio
-    </button>
-  );
-}
-
-
 
 // ── shared project bus (survives tab switches) ──
 window.PP = window.PP || {
   inbox:{}, assets:[], collisions:[], markers:[], markup:[], graph:[], tilemap:null, workingCanvas:{},
-  options:{ tileSize:16, gridW:40, gridH:30, accent:'#10b981', showGrid:true, exportFmt:'json' }
+  options:{ tileSize:16, gridW:40, gridH:30, accent:'#10b981', showGrid:true, exportFmt:'json', cursorStyle:'cross', noDoubles:false }
 };
 const PP = window.PP;
 // Event bus so receiving tabs react to Sends automatically (real inter-tab threading).
@@ -214,6 +193,8 @@ function TilemapPanel(toast){
     if(PP.options.showGrid){ctx.strokeStyle='rgba(120,200,255,.12)';ctx.lineWidth=1;for(let x=0;x<=gw;x++){ctx.beginPath();ctx.moveTo(x*ts*s,0);ctx.lineTo(x*ts*s,cv.height);ctx.stroke();}for(let y=0;y<=gh;y++){ctx.beginPath();ctx.moveTo(0,y*ts*s);ctx.lineTo(cv.width,y*ts*s);ctx.stroke();}}
   };
   useEffect(()=>{ if(grid.length) redraw(); },[grid,tiles,tileSize]);
+  useEffect(() => { if(PP.inbox.tilemap) receive(); }, []); // Auto-load on mount
+  useEffect(() => { if(PP.inbox.tilemap) receive(); }, []); // Auto-load on mount
   useEffect(() => { if(PP.inbox.tilemap) receive(); }, []); // Auto-load on mount
   useEffect(()=>{ const fn=(t,data)=>{ if(t==='tilemap'&&data){ setSrc(data); loadDataURL(data); toast('Tilemap source received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
   const receive=()=>{ if(PP.inbox.tilemap){ setSrc(PP.inbox.tilemap); loadDataURL(PP.inbox.tilemap); toast('Received image → collect tiles'); } else toast('Nothing sent yet. Use Send from Editor/Assets.'); };
@@ -402,6 +383,8 @@ function CollisionPanel(toast){
   const clearAll=()=>{PP.collisions.length=0;setShapes([]);render();};
   const delShape=(i)=>{PP.collisions.splice(i,1);setShapes(s=>s.filter((_,j)=>j!==i));render();};
   const useSentBg=()=>{ if(PP.inbox.collisionBg){loadDataURL(PP.inbox.collisionBg);toast('Loaded sent background');} else if(PP.inbox.collision){loadDataURL(PP.inbox.collision);toast('Loaded sent image');} else toast('Nothing sent.'); };
+  useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
+  useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
   useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
   useEffect(()=>{ const fn=(t,data)=>{ if((t==='collision'||t==='collisionBg')&&data){ loadDataURL(data); setMode('photo'); toast('Collision background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
   const exportJson=()=>download('collision_'+Date.now()+'.json',{tool:'collision',mode,shapes:PP.collisions});
@@ -736,6 +719,14 @@ function OptionsPanel({toast,doc,onDoc}){
       <div className="row">
         <label className="neon-btn">Show Grid<input type="checkbox" checked={o.showGrid} onChange={e=>apply({showGrid:e.target.checked})} style={{display:'none'}}/></label>
         <button className={"neon-btn "+(o.showGrid?'on':'')} onClick={()=>apply({showGrid:!o.showGrid})}>{o.showGrid?'Grid: On':'Grid: Off'}</button>
+        <span style={{color:'var(--dim)',fontSize:12,marginLeft:12}}>Cursor:</span>
+        <button className={"neon-btn "+(o.cursorStyle==='cross'?'on':'')} onClick={()=>apply({cursorStyle:'cross'})}>﹢ Cross</button>
+        <button className={"neon-btn "+(o.cursorStyle==='dot'?'on':'')} onClick={()=>apply({cursorStyle:'dot'})}>● Dot</button>
+        <button className={"neon-btn "+(o.cursorStyle==='none'?'on':'')} onClick={()=>apply({cursorStyle:'none'})}>◌ None</button>
+      </div>
+      <div className="row">
+        <button className={"neon-btn "+(o.noDoubles?'on':'')} onClick={()=>apply({noDoubles:!o.noDoubles})}>{o.noDoubles?'No Doubles: On':'No Doubles: Off'}</button>
+        <span style={{color:'var(--dim)',fontSize:11,marginLeft:8}}>Skip drawing pixels that already match the active color</span>
       </div>
       <div className="seg">
         <button className="neon-btn cy" onClick={save}>Save Settings → Folder</button>
@@ -1014,6 +1005,8 @@ function App(){
   const toast=useCallback((m)=>{ setToastMsg(m); setTimeout(()=>setToastMsg(''),2600); },[]);
   window.__ppToast = toast;
   const iframeRef=useRef(null);
+  const [undoAvail,setUndoAvail]=useState(false);
+  const [redoAvail,setRedoAvail]=useState(false);
   const [doc,setDoc]=useState({w:64,h:64,palette:['#000000','#ffffff','#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c']});
   const docRef=useRef(doc); docRef.current=doc;
   const [contentKey,setContentKey]=useState(0);
@@ -1104,6 +1097,16 @@ function App(){
     try{ const h=hubLoad(); if(h.current && h.current.data){ applySnapshot(h.current); } }catch(e){}
   // eslint-disable-next-line
   },[]);
+  // Global undo/redo keyboard shortcuts
+  useEffect(()=>{
+    const h=(e)=>{
+      const tag=document.activeElement&&document.activeElement.tagName;
+      if(tag==='INPUT'||tag==='TEXTAREA') return;
+      if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){ e.preventDefault(); if(iframeRef.current&&iframeRef.current.contentWindow) iframeRef.current.contentWindow.postMessage({type:'UNDO'},'*'); }
+      if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){ e.preventDefault(); if(iframeRef.current&&iframeRef.current.contentWindow) iframeRef.current.contentWindow.postMessage({type:'REDO'},'*'); }
+    };
+    window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
+  },[]);
   // listen for canvas data coming back from iframe tools
   useEffect(()=>{
     const h=(e)=>{ 
@@ -1163,6 +1166,10 @@ function App(){
           const url = d.data && (d.data.dataURL || d.data.image);
           if(url){ PP.assets.unshift({ id: Date.now()+'_'+Math.random().toString(36).slice(2,7), name:(d.data&&d.data.prompt||'ai')+'.png', dataURL:url, folder:'AI' }); if(window.__ppRefreshHub) window.__ppRefreshHub(); toast('AI result → Art Hub'); }
         }
+        if(d.type==='UNDO_STATUS'){
+          setUndoAvail(!!d.canUndo);
+          setRedoAvail(!!d.canRedo);
+        }
 
     };
     window.addEventListener('message',h); return ()=>window.removeEventListener('message',h);
@@ -1201,6 +1208,10 @@ function App(){
           )}
           <button className="neon-btn cy" onClick={()=>saveProject()}>Save</button>
           <button className="neon-btn" onClick={()=>loadProject()}>Load</button>
+          {tab.kind==='iframe' && <>
+            <button className="neon-btn" disabled={!undoAvail} onClick={()=>{ if(iframeRef.current&&iframeRef.current.contentWindow) iframeRef.current.contentWindow.postMessage({type:'UNDO'},'*'); }} title="Undo (Ctrl+Z)">↩ Undo</button>
+            <button className="neon-btn" disabled={!redoAvail} onClick={()=>{ if(iframeRef.current&&iframeRef.current.contentWindow) iframeRef.current.contentWindow.postMessage({type:'REDO'},'*'); }} title="Redo (Ctrl+Y)">↪ Redo</button>
+          </>}
           <input style={{background:'#1a1a1a',border:'1px solid #333',color:'#eee',borderRadius:8,padding:'4px 8px',fontSize:12,width:130}} value={projName} onChange={(e)=>setProjName(e.target.value)} placeholder="Project name" title="Project name" />
           <span className="chip">{tab.label}</span>
         </div>
@@ -1235,8 +1246,6 @@ function App(){
         </div>
       </div>
       {toastMsg && <div className="toast">{toastMsg}</div>}
-      <AIGenerator activeTab={active} setActive={setActive} onGenerated={(b64)=>{ try{ const url='data:image/png;base64,'+b64; if(active==='editor'||active==='studio'||active==='forge'){ document.querySelectorAll('.tool-iframe').forEach(f=>{ if(f.contentWindow) f.contentWindow.postMessage({type:'LOAD_CANVAS',data:{[active]:url}},'*'); }); } }catch(e){} }}/>
-      
       </React.Fragment>
   );
 }

@@ -29,8 +29,34 @@ import io
 import json
 import math
 import random
+import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
+
+# Redirect EVERYTHING (stdout, stderr, uncaught exceptions) to a log file next to
+# this script so that when the Tauri app spawns us with Stdio::null() we can still
+# see why we failed to come up. The app itself cannot capture our output.
+_SIDECAR_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidecar_debug.log")
+def _sc_log(msg):
+    try:
+        with open(_SIDECAR_LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+            f.flush()
+    except Exception:
+        pass
+# Mirror prints + capture all exceptions to the file.
+class _ScLogFile:
+    def write(self, s):
+        _sc_log(s.rstrip("\n"))
+    def flush(self):
+        pass
+sys.stdout = _ScLogFile()
+sys.stderr = _ScLogFile()
+def _sc_excepthook(t, v, tb):
+    _sc_log("UNCAUGHT EXCEPTION:\n" + "".join(traceback.format_exception(t, v, tb)))
+sys.excepthook = _sc_excepthook
+_sc_log("=== sidecar start pid=%d python=%s cwd=%s ===" % (os.getpid(), sys.executable, os.getcwd()))
+
 
 PORT = 18755
 if len(sys.argv) > 1 and sys.argv[1].isdigit():
@@ -151,8 +177,10 @@ def load_pipeline():
     global PIPE, IS_SDXL
     if PIPE is not None:
         return PIPE
+    print("[sidecar] importing torch + diffusers ...", flush=True)
     import torch
     from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
+    print("[sidecar] torch + diffusers imported OK", flush=True)
     arch = os.environ.get("PP_SD_ARCH", "").lower()
     if not arch:
         low = CHECKPOINT.lower()
@@ -240,7 +268,7 @@ def generate(req):
     import torch
     pipe = load_pipeline()
     base_prompt = req.get("prompt", "pixel art, game asset")
-    seed = int(req.get("seed", 0)) if req.get("seed") else random.randint(0, 1 << 31)
+    seed = int(req.get("seed", 0)) if req.get("seed") is not None and req.get("seed") != "" else random.randint(0, 1 << 31)
     palette = req.get("palette", "none")
     preset = (req.get("model") or "allinone").lower()
     sampler = req.get("sampler", "euler_a")
@@ -261,7 +289,7 @@ def generate(req):
         "pixelxl": "",
     }
     # Universal pixel-art negative prompt — keeps the model off Rorschach noise.
-    neg = req.get("negative_prompt",
+    neg = req.get("negative_prompt") or (
                   "blurry, smooth gradient, noise, photorealistic, 3d render, "
                   "anti-aliased, jpeg artifacts, lowres, watermark, text, fuzzy, "
                   "painting, sketch")
@@ -397,6 +425,14 @@ if __name__ == "__main__":
             load_pipeline()
             print("[sidecar] model preloaded and ready.", flush=True)
         except Exception as e:
-            print(f"[sidecar] preload failed: {e}", flush=True)
+            print("[sidecar] preload failed:\n" + traceback.format_exc(), flush=True)
     threading.Thread(target=_preload, daemon=True).start()
-    HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    try:
+        # ThreadingHTTPServer so concurrent /health polls don't block a slow
+        # /generate request (BaseHTTPServer is single-threaded and would
+        # serialize them, which made Generate appear to hang).
+        from http.server import ThreadingHTTPServer
+        ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    except Exception as e:
+        print("[sidecar] SERVER FAILED to start:\n" + traceback.format_exc(), flush=True)
+        sys.exit(1)
