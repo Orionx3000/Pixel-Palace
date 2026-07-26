@@ -117,16 +117,18 @@ function dataURLtoBlob(dataURL){const [h,body]=dataURL.split(',');const mime=h.m
 function useCanvasStage(draw){
   const canvasRef=useRef(null); const imgRef=useRef(null); const scaleRef=useRef(1);
   const [hasImg,setHasImg]=useState(false);
-  const loadFile=(file)=>{const r=new FileReader();r.onload=e=>{const im=new Image();im.onload=()=>{imgRef.current=im;setHasImg(true);render();};im.src=e.target.result;};r.readAsDataURL(file);};
-  const loadDataURL=(url)=>{const im=new Image();im.onload=()=>{imgRef.current=im;setHasImg(true);render();};im.src=url;};
+  const loadFile=(file)=>{const r=new FileReader();r.onload=e=>{const im=new Image();im.onload=()=>{imgRef.current=im;setHasImg(true);};im.src=e.target.result;};r.readAsDataURL(file);};
+  const loadDataURL=(url)=>{const im=new Image();im.onload=()=>{imgRef.current=im;setHasImg(true);};im.src=url;};
   const render=()=>{const cv=canvasRef.current;if(!cv||!imgRef.current)return;const im=imgRef.current;
-    const maxW=cv.parentElement.clientWidth-24,maxH=cv.parentElement.clientHeight-24;
+    const par=cv.parentElement;
+    const maxW=(par?par.clientWidth:0)-24, maxH=(par?par.clientHeight:0)-24;
+    if(maxW<1||maxH<1)return;
     const s=Math.min(maxW/im.width,maxH/im.height,8);scaleRef.current=s;
     cv.width=Math.max(1,Math.round(im.width*s));cv.height=Math.max(1,Math.round(im.height*s));
     const ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);ctx.drawImage(im,0,0,cv.width,cv.height);
     if(draw)draw(ctx,cv,s);};
   useEffect(()=>{if(hasImg)render();},[hasImg]);
-  useEffect(()=>{const h=()=>{if(hasImg)render();};window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[hasImg]);
+  useEffect(()=>{const h=()=>{if(hasImg&&canvasRef.current&&canvasRef.current.parentElement){const par=canvasRef.current.parentElement;if(par.clientWidth>1&&par.clientHeight>1)render();}};window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[hasImg]);
   return {canvasRef,loadFile,loadDataURL,render,imgRef,scaleRef,hasImg};
 }
 
@@ -383,8 +385,6 @@ function CollisionPanel(toast){
   const clearAll=()=>{PP.collisions.length=0;setShapes([]);render();};
   const delShape=(i)=>{PP.collisions.splice(i,1);setShapes(s=>s.filter((_,j)=>j!==i));render();};
   const useSentBg=()=>{ if(PP.inbox.collisionBg){loadDataURL(PP.inbox.collisionBg);toast('Loaded sent background');} else if(PP.inbox.collision){loadDataURL(PP.inbox.collision);toast('Loaded sent image');} else toast('Nothing sent.'); };
-  useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
-  useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
   useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
   useEffect(()=>{ const fn=(t,data)=>{ if((t==='collision'||t==='collisionBg')&&data){ loadDataURL(data); setMode('photo'); toast('Collision background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
   const exportJson=()=>download('collision_'+Date.now()+'.json',{tool:'collision',mode,shapes:PP.collisions});

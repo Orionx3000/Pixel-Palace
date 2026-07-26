@@ -1439,18 +1439,10 @@ function App(){
     img.src=charSheet.url;
   };
 
-  // Keyboard shortcuts
-  useEffect(()=>{
-    const h=e=>{
-      if(document.activeElement&&document.activeElement.tagName==='INPUT') return;
-      if(e.key==='z'&&(e.ctrlKey||e.metaKey)&&!e.shiftKey){ e.preventDefault(); undo(); }
-      if((e.key==='y'&&(e.ctrlKey||e.metaKey))||(e.key==='z'&&(e.ctrlKey||e.metaKey)&&e.shiftKey)){ e.preventDefault(); redo(); }
-    };
-    window.addEventListener('keydown',h);
-    return()=>window.removeEventListener('keydown',h);
-  },[undo,redo]);
+  // Keyboard shortcuts — handled by parent App.jsx via postMessage UNDO/REDO
+  // (removed local Ctrl+Z/Y handler to avoid double/triple firing)
 
-  // Listen for UNDO/REDO from parent (top bar buttons)
+  // Listen for UNDO/REDO from parent (top bar buttons + keyboard)
   useEffect(()=>{
     const h=(e)=>{ const d=e.data||{}; if(d.type==='UNDO') undo(); if(d.type==='REDO') redo(); };
     window.addEventListener('message',h);
@@ -1481,10 +1473,11 @@ function App(){
        setW(nw); setH(nh); setSzW(nw); setSzH(nh);
        const l = makeLayer(nw,nh,'Layer 1');
        l.frames[0].ctx.drawImage(img,0,0,nw,nh);
-       setLayers([l]);
-       setActiveLayerIdx(0);
-       setUndoStack([]); setRedoStack([]);
-       setUiTick(t=>t+1);
+        setLayers([l]);
+        setActiveLayerIdx(0);
+        undoStackRef.current=[]; redoStackRef.current=[];
+        setUndoCount(0); setRedoCount(0);
+        setUiTick(t=>t+1);
        show('Canvas loaded');
     };
     img.src = dataUrl;
