@@ -113,6 +113,16 @@ function loadImg(dataURL){return new Promise((res,rej)=>{const im=new Image();im
 function download(filename,text){ const content = typeof text==='string'?text:JSON.stringify(text,null,2); const ext = filename.split('.').pop() || 'txt'; if(window.__tauriSave) window.__tauriSave(content, filename, ext); }
 function dataURLtoBlob(dataURL){const [h,body]=dataURL.split(',');const mime=h.match(/:(.*?);/)[1];const bin=atob(body);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime});}
 
+/* ---- shared: render PP.tilemap grid to a dataURL (used by Collision, Markup, Markers) ---- */
+function loadTilemapBg(){
+  if(!PP.tilemap||!PP.tilemap.grid||!PP.tilemap.grid.length) return null;
+  const {tileSize,cols,rows,grid,tiles}=PP.tilemap;
+  const W=cols*tileSize,H=rows*tileSize;
+  const c=document.createElement('canvas');c.width=W;c.height=H;const cx=c.getContext('2d');
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const idx=grid[y][x];if(idx>=0&&tiles[idx]){const im=new Image();im.onload=()=>cx.drawImage(im,x*tileSize,y*tileSize,tileSize,tileSize);im.src=tiles[idx];}}
+  return c.toDataURL();
+}
+
 /* ---- canvas loader for native panels ---- */
 function useCanvasStage(draw){
   const canvasRef=useRef(null); const imgRef=useRef(null); const scaleRef=useRef(1);
@@ -130,123 +140,6 @@ function useCanvasStage(draw){
   useEffect(()=>{if(hasImg)render();},[hasImg]);
   useEffect(()=>{const h=()=>{if(hasImg&&canvasRef.current&&canvasRef.current.parentElement){const par=canvasRef.current.parentElement;if(par.clientWidth>1&&par.clientHeight>1)render();}};window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[hasImg]);
   return {canvasRef,loadFile,loadDataURL,render,imgRef,scaleRef,hasImg};
-}
-
-/* =================== TILEMAP =================== */
-function TilemapPanel(toast){
-  const {canvasRef,loadFile,loadDataURL,render,imgRef,scaleRef,hasImg}=useCanvasStage((ctx,cv,s)=>{
-    // draw grid of tiles
-    if(grid.length){
-      const ts=PP.options.tileSize;
-      const gw=grid[0].length, gh=grid.length;
-      const dw=gw*ts*s, dh=gh*ts*s;
-      // background already = source; overlay tiles
-      for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){
-        const idx=grid[y][x];
-        if(idx>=0&&tiles[idx]){const im=new Image();}
-      }
-    }
-  });
-  const [tileSize,setTileSize]=useState(PP.options.tileSize);
-  const [tiles,setTiles]=useState([]);          // array of dataURLs
-  const [grid,setGrid]=useState([]);            // 2D array of tile indices (-1 empty)
-  const [sel,setSel]=useState(0);               // selected tile index
-  const [src,setSrc]=useState(null);
-  const drawingRef=useRef(false);
-  const cellFromEvent=(e)=>{
-    const cv=canvasRef.current;const r=cv.getBoundingClientRect();
-    const x=(e.clientX-r.left)/cv.width, y=(e.clientY-r.top)/cv.height;
-    return {x,y};
-  };
-  const collect=async()=>{
-    let im=imgRef.current;
-    if(!im&&src){ im=await loadImg(src); }
-    if(!im){ toast('Load or receive an image first'); return; }
-    const ts=tileSize; const gw=Math.floor(im.width/ts), gh=Math.floor(im.height/ts);
-    const out=[];
-    for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){
-      const c=document.createElement('canvas');c.width=ts;c.height=ts;const cx=c.getContext('2d');
-      cx.drawImage(im,x*ts,y*ts,ts,ts,0,0,ts,ts);out.push(c.toDataURL());
-    }
-    setTiles(out); setGrid(Array.from({length:PP.options.gridH},()=>Array(PP.options.gridW).fill(-1)));
-    toast('Collected '+out.length+' tiles ('+gw+'×'+gh+')');
-  };
-  const paintAt=(e)=>{
-    if(!grid.length)return;
-    const {x,y}=cellFromEvent(e);
-    const gw=grid[0].length, gh=grid.length;
-    const gx=Math.floor(x*gw), gy=Math.floor(y*gh);
-    if(gx<0||gy<0||gx>=gw||gy>=gh)return;
-    const ng=grid.map(r=>r.slice());ng[gy][gx]=sel;setGrid(ng);
-    redraw();
-  };
-  const redraw=()=>{
-    const cv=canvasRef.current;if(!cv)return;
-    const ctx=cv.getContext('2d');const ts=tileSize;
-    const gw=(grid[0]?grid[0].length:0), gh=grid.length;
-    const W=gw*ts, H=gh*ts;
-    const s=Math.min((cv.parentElement.clientWidth-24)/W,(cv.parentElement.clientHeight-24)/H,8)||1;
-    scaleRef.current=s;cv.width=Math.max(1,Math.round(W*s));cv.height=Math.max(1,Math.round(H*s));
-    ctx.clearRect(0,0,cv.width,cv.height);
-    // faint source underlay
-    if(imgRef.current){ctx.globalAlpha=.25;ctx.drawImage(imgRef.current,0,0,cv.width,cv.height);ctx.globalAlpha=1;}
-    const drawTile=(idx,px,py)=>{ if(idx<0||!tiles[idx])return; const im=new Image(); im.onload=()=>ctx.drawImage(im,px,py,ts*s,ts*s); im.src=tiles[idx]; };
-    for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){ if(grid[y][x]>=0) drawTile(grid[y][x],x*ts*s,y*ts*s); }
-    if(PP.options.showGrid){ctx.strokeStyle='rgba(120,200,255,.12)';ctx.lineWidth=1;for(let x=0;x<=gw;x++){ctx.beginPath();ctx.moveTo(x*ts*s,0);ctx.lineTo(x*ts*s,cv.height);ctx.stroke();}for(let y=0;y<=gh;y++){ctx.beginPath();ctx.moveTo(0,y*ts*s);ctx.lineTo(cv.width,y*ts*s);ctx.stroke();}}
-  };
-  useEffect(()=>{ if(grid.length) redraw(); },[grid,tiles,tileSize]);
-  useEffect(() => { if(PP.inbox.tilemap) receive(); }, []); // Auto-load on mount
-  useEffect(() => { if(PP.inbox.tilemap) receive(); }, []); // Auto-load on mount
-  useEffect(() => { if(PP.inbox.tilemap) receive(); }, []); // Auto-load on mount
-  useEffect(()=>{ const fn=(t,data)=>{ if(t==='tilemap'&&data){ setSrc(data); loadDataURL(data); toast('Tilemap source received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
-  const receive=()=>{ if(PP.inbox.tilemap){ setSrc(PP.inbox.tilemap); loadDataURL(PP.inbox.tilemap); toast('Received image → collect tiles'); } else toast('Nothing sent yet. Use Send from Editor/Assets.'); };
-  const exportMap=()=>{
-    const data={ tileSize, cols:grid[0]?grid[0].length:0, rows:grid.length, grid, tiles, type:'tilemap' };
-    download('tilemap_'+Date.now()+'.json', JSON.stringify(data));
-    toast('Exported tilemap JSON ('+grid.length+'×'+(grid[0]?grid[0].length:0)+')');
-    PP.tilemap={tileSize,cols:data.cols,rows:data.rows,grid,tiles};
-  };
-  const exportTres=()=>{
-    let t='[gd_resource type="TileSet" load_steps=2 format=3]\n';
-    t+='[sub_resource type="RectangleShape2D" id=RectangleShape2D_1]\n';
-    t+='[sub_resource type="TileSetAtlasSource" id=Atlas_1]\n';
-    t+='texture = ExtResource("tilesheet_1")\n';
-    t+='[resource]\nphysics_layer_0/collision_shape_0/shape = SubResource("RectangleShape2D_1")\n';
-    download('tileset_'+Date.now()+'.tres', t);
-    toast('Exported Godot .tres tileset');
-  };
-  const sendToCollision=()=>{ if(!grid.length){toast('Build a map first');return;} PP.tilemap={tileSize,cols:grid[0].length,rows:grid.length,grid,tiles};toast('Tilemap sent to Collision (Level mode)'); setActive('collision'); };
-  const [active,setActive]=useState('tilemap'); // local redirect helper via prop
-  return (
-    <div className="panel">
-      <div className="titlebar"><h2 className="glow" style={{fontSize:15}}>Tilemap Collector / Creator</h2>
-        <span className="chip">slice art into tiles · paint murals · export</span></div>
-      <div className="seg">
-        <label className="neon-btn cy">Source Image<input type="file" accept="image/*" style={{display:'none'}} onChange={e=>e.target.files[0]&&loadFile(e.target.files[0])}/></label>
-        <button className="neon-btn" onClick={receive}>Receive Sent</button>
-        <span className="col" style={{minWidth:120}}><label>Tile Size</label>
-          <select value={tileSize} onChange={e=>setTileSize(+e.target.value)}><option>8</option><option>16</option><option>32</option><option>64</option></select></span>
-        <button className="neon-btn vi" onClick={collect}>Collect Tiles</button>
-      </div>
-      <div className="hint">Load a sprite sheet / mural, choose a tile size, hit <span className="kbd">Collect Tiles</span> to build a tile palette, then paint the grid below. Switch tiles with the palette. Works at mural scale (grid up to {PP.options.gridW}×{PP.options.gridH}).</div>
-      <div className="row">
-        <span className="col" style={{minWidth:160}}><label>Selected Tile</label>
-          <select value={sel} onChange={e=>setSel(+e.target.value)}><option value={-1}>Eraser</option>{tiles.map((t,i)=><option key={i} value={i}>#{i}</option>)}</select></span>
-        <button className="neon-btn" onClick={exportMap}>Export JSON</button>
-        <button className="neon-btn cy" onClick={exportTres}>Export .tres</button>
-        <button className="neon-btn mg" onClick={sendToCollision}>Send to Collision</button>
-      </div>
-      <div className="gal" style={{maxHeight:140}}>
-        {tiles.length===0&&<div className="muted" style={{fontSize:12}}>No tiles collected.</div>}
-        {tiles.map((t,i)=>(<div key={i} className="asset" style={{cursor:'pointer',outline:sel===i?'2px solid var(--accent)':'none'}} onClick={()=>setSel(i)}><img src={t}/></div>))}
-      </div>
-      <div className="stage">
-        {!grid.length && <div className="muted">Collect tiles to start painting. The grid scales to murals.</div>}
-        <canvas ref={canvasRef} style={{display:grid.length?'block':'none',cursor:'crosshair'}}
-          onMouseDown={e=>{drawingRef.current=true;paintAt(e);}} onMouseMove={e=>{if(drawingRef.current)paintAt(e);}} onMouseUp={()=>drawingRef.current=false} onMouseLeave={()=>drawingRef.current=false}/>
-      </div>
-    </div>
-  );
 }
 
 /* =================== ASSETS =================== */
@@ -376,10 +269,7 @@ function CollisionPanel(toast){
   });
   const [curType,setCurType]=useState('platform'); const [pts,setPts]=useState([]); const [shapes,setShapes]=useState([]);
   const [mode,setMode]=useState('photo'); // photo | level
-  const loadLevel=async()=>{ if(!PP.tilemap){toast('No tilemap yet — build one in Tilemap.');return;} const {tileSize,cols,rows,grid,tiles}=PP.tilemap;
-    const W=cols*tileSize,H=rows*tileSize; const c=document.createElement('canvas');c.width=W;c.height=H;const cx=c.getContext('2d');
-    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const idx=grid[y][x];if(idx>=0&&tiles[idx]){const im=new Image();im.onload=()=>cx.drawImage(im,x*tileSize,y*tileSize,tileSize,tileSize);im.src=tiles[idx];}}
-    const url=c.toDataURL(); setMode('level'); loadDataURL(url); toast('Loaded tilemap as level background'); };
+  const loadLevel=async()=>{ const url=loadTilemapBg(); if(!url){toast('No tilemap yet — build one in Tilemap.');return;} setMode('level'); loadDataURL(url); toast('Loaded tilemap as level background'); };
   const onClick=(e)=>{const cv=canvasRef.current;const r=cv.getBoundingClientRect();const x=(e.clientX-r.left)/cv.width,y=(e.clientY-r.top)/cv.height;if(x<0||y<0||x>1||y>1)return;setPts(p=>[...p,{x,y}]);};
   const finish=()=>{ if(pts.length<3){setPts([]);return;} const sh={type:curType,points:pts};PP.collisions.push(sh);setShapes(s=>[...s,sh]);setPts([]);render(); };
   const clearAll=()=>{PP.collisions.length=0;setShapes([]);render();};
@@ -388,6 +278,13 @@ function CollisionPanel(toast){
   useEffect(() => { if(PP.inbox.collisionBg || PP.inbox.collision) useSentBg(); }, []);
   useEffect(()=>{ const fn=(t,data)=>{ if((t==='collision'||t==='collisionBg')&&data){ loadDataURL(data); setMode('photo'); toast('Collision background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
   const exportJson=()=>download('collision_'+Date.now()+'.json',{tool:'collision',mode,shapes:PP.collisions});
+  const importJson=()=>{
+    const inp=document.createElement('input');inp.type='file';inp.accept='.json';
+    inp.onchange=()=>{const f=inp.files[0];if(!f)return;const r=new FileReader();
+    r.onload=()=>{try{const d=JSON.parse(r.result);if(d.tool!=='collision'||!Array.isArray(d.shapes)){toast('Not a collision JSON');return;}
+    PP.collisions.length=0;d.shapes.forEach(s=>PP.collisions.push(s));setShapes([...PP.collisions]);render();toast('Imported '+d.shapes.length+' collision shapes');}catch(e){toast('Parse error');}};r.readAsText(f);};
+    inp.click();
+  };
   return (
     <div className="panel">
       <div className="titlebar"><h2 className="glow" style={{fontSize:15}}>Collision Painter</h2>
@@ -406,6 +303,7 @@ function CollisionPanel(toast){
         <button className="neon-btn am" onClick={()=>setPts([])} disabled={!pts.length}>Cancel</button>
         <button className="neon-btn mg" onClick={clearAll}>Clear</button>
         <button className="neon-btn cy" onClick={exportJson}>Export JSON</button>
+        <button className="neon-btn" onClick={importJson}>Load JSON</button>
       </div>
       <div className="hint">Photo Mode traces collision over any photo. Level Mode renders your Tilemap as the background so you can design collision for tile-built levels. Both feed Build.</div>
       <div className="stage">
@@ -452,10 +350,7 @@ function MarkupPanel(toast){
   const [pts,setPts]=useState([]);
   const [mode,setMode]=useState('photo');
   const layerOf=id=>layers.find(l=>l.id===id);
-  const loadLevel=async()=>{ if(!PP.tilemap){toast('No tilemap yet — build one in Tilemap.');return;} const {tileSize,cols,rows,grid,tiles}=PP.tilemap;
-    const W=cols*tileSize,H=rows*tileSize; const c=document.createElement('canvas');c.width=W;c.height=H;const cx=c.getContext('2d');
-    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const idx=grid[y][x];if(idx>=0&&tiles[idx]){const im=new Image();im.onload=()=>cx.drawImage(im,x*tileSize,y*tileSize,tileSize,tileSize);im.src=tiles[idx];}}
-    setMode('level'); loadDataURL(c.toDataURL()); toast('Loaded tilemap as background'); };
+  const loadLevel=async()=>{ const url=loadTilemapBg(); if(!url){toast('No tilemap yet — build one in Tilemap.');return;} setMode('level'); loadDataURL(url); toast('Loaded tilemap as background'); };
   const onClick=(e)=>{ const cv=canvasRef.current; const r=cv.getBoundingClientRect(); const x=(e.clientX-r.left)/cv.width,y=(e.clientY-r.top)/cv.height; if(x<0||y<0||x>1||y>1)return; setPts(p=>[...p,{x,y}]); };
   const finish=()=>{ if(pts.length<2){setPts([]);return;} const L=layerOf(curLayer); if(!L)return;
     const nl=layers.map(l=>l.id===curLayer?{...l,paths:[...l.paths,pts]}:l); setLayers(nl); PP.markup.push({type:L.type,color:L.color,paths:[pts]}); setPts([]); render(); };
@@ -464,7 +359,7 @@ function MarkupPanel(toast){
   const delLayer=(id)=>{ setLayers(ls=>ls.filter(l=>l.id!==id)); PP.markup=PP.markup.filter(m=>m._layer!==id); if(curLayer===id)setCurLayer(layers[0]?.id); render(); };
   const addLayer=()=>{ const id=Date.now(); const type='zone'; setLayers(ls=>[...ls,{id,name:'Layer '+(ls.length+1),type,color:(MARKUP_TYPES[type]||{}).color||'#a78bfa',visible:true,paths:[]}]); setCurLayer(id); };
   const useSentBg=()=>{ if(PP.inbox.markupBg){loadDataURL(PP.inbox.markupBg);toast('Loaded sent background');} else if(PP.inbox.collisionBg){loadDataURL(PP.inbox.collisionBg);toast('Loaded sent bg');} else if(PP.inbox.collision){loadDataURL(PP.inbox.collision);toast('Loaded sent image');} else toast('Nothing sent.'); };
-  useEffect(()=>{ const fn=(t,data)=>{ if((t==='markupBg'||t==='collisionBg'||t==='collision')&&data){ loadDataURL(data); setMode('photo'); toast('Markup background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
+  useEffect(()=>{ const fn=(t,data)=>{ if((t==='markup'||t==='markupBg'||t==='collisionBg'||t==='collision')&&data){ loadDataURL(data); setMode('photo'); toast('Markup background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
   const exportJson=()=>{ const out={tool:'markup',mode,layers:layers.map(l=>({name:l.name,type:l.type,color:l.color,paths:l.paths}))};
     download('markup_'+Date.now()+'.json',out); toast('Exported markup JSON'); };
   return (
@@ -519,11 +414,8 @@ function MarkersPanel(toast){
   const clearAll=()=>{PP.markers.length=0;setItems([]);render();};
   const del=(i)=>{PP.markers.splice(i,1);setItems(s=>s.filter((_,j)=>j!==i));render();};
   const useSentBg=()=>{ if(PP.inbox.collisionBg)loadDataURL(PP.inbox.collisionBg); else if(PP.inbox.collision)loadDataURL(PP.inbox.collision); else toast('Nothing sent.'); };
-  const loadTilemap=()=>{ if(!PP.tilemap){toast('No tilemap yet — build one in Tilemap.');return;} const {tileSize,cols,rows,grid,tiles}=PP.tilemap;
-    const W=cols*tileSize,H=rows*tileSize; const c=document.createElement('canvas');c.width=W;c.height=H;const cx=c.getContext('2d');
-    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const idx=grid[y][x];if(idx>=0&&tiles[idx]){const im=new Image();im.onload=()=>cx.drawImage(im,x*tileSize,y*tileSize,tileSize,tileSize);im.src=tiles[idx];}}
-    loadDataURL(c.toDataURL()); toast('Loaded tilemap as marker background'); };
-  useEffect(()=>{ const fn=(t,data)=>{ if((t==='collision'||t==='collisionBg')&&data){ loadDataURL(data); toast('Marker background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
+  const loadTilemap=()=>{ const url=loadTilemapBg(); if(!url){toast('No tilemap yet — build one in Tilemap.');return;} loadDataURL(url); toast('Loaded tilemap as marker background'); };
+  useEffect(()=>{ const fn=(t,data)=>{ if((t==='markers'||t==='collision'||t==='collisionBg')&&data){ loadDataURL(data); toast('Marker background received'); } }; PP.inboxListeners.push(fn); return ()=>{ PP.inboxListeners=PP.inboxListeners.filter(x=>x!==fn); }; },[]);
   const exportJson=()=>download('markers_'+Date.now()+'.json',{tool:'markers',markers:PP.markers});
   return (
     <div className="panel">
@@ -564,6 +456,14 @@ function buildTscn(data){
     else{s+='[node name="CollisionPolygon" type="CollisionPolygon2D" parent="."]\npolygon = PackedVector2Array('+sh.points.map(p=>`Vector2(${(p.x*1024).toFixed(1)}, ${(p.y*576).toFixed(1)})`).join(', ')+')\n\n';}
   });
   (data.markers||[]).forEach((mk,i)=>{ s+=`[node name="${MARKER_DEFS[mk.type].name.replace(/\s/g,'')}${i}" type="Marker2D" parent="."]\nposition = Vector2(${(mk.x*1024).toFixed(1)}, ${(mk.y*576).toFixed(1)})\nmetadata = {"marker_type":"'+mk.type+'}\n\n`; });
+  (data.markup||[]).forEach((mk,i)=>{
+    const mkType=mk.type||'path'; const mkColor=mk.color||'#10b981';
+    (mk.paths||[]).forEach((p,pi)=>{
+      if(!p||p.length<2)return;
+      const pts=p.map(pt=>`Vector2(${(pt.x*1024).toFixed(1)}, ${(pt.y*576).toFixed(1)})`).join(', ');
+      s+=`[node name="Markup_${mkType}${i}_${pi}" type="Line2D" parent="."]\npoints = PackedVector2Array(${pts})\nwidth = 2.0\ncolor = Color(${parseInt(mkColor.slice(1,3),16)/255}, ${parseInt(mkColor.slice(3,5),16)/255}, ${parseInt(mkColor.slice(5,7),16)/255}, 0.9)\nmetadata = {"markup_type":"${mkType}"}\n\n`;
+    });
+  });
   if(data.tilemap){ s+='[node name="TileMap" type="TileMap" parent="."]\n'; }
   return s;
 }
@@ -583,15 +483,15 @@ async function exportOpenStarboundMod(name, toast){
 
 function BuildPanel(toast){
   const [name,setName]=useState('Level_01'); const [log,setLog]=useState('');
-  const c=PP.collisions.length,m=PP.markers.length,tm=PP.tilemap?PP.tilemap.cols*PP.tilemap.rows:0;
-  const exportLevel=()=>{ const data={name,background:'background.png',collisions:PP.collisions,markers:PP.markers,tilemap:PP.tilemap,exportedAt:new Date().toISOString()}; download(name+'_level.json',data); setLog('Exported '+name+'_level.json ('+c+' collisions, '+m+' markers, tilemap '+(PP.tilemap?('on'):'off')+')'); };
-  const exportTscn=()=>{ const data={name,collisions:PP.collisions,markers:PP.markers,tilemap:PP.tilemap}; download(name+'.tscn',buildTscn(data)); setLog('Exported Godot scene '+name+'.tscn'); };
+  const c=PP.collisions.length,m=PP.markers.length,mk=PP.markup?PP.markup.length:0,tm=PP.tilemap?PP.tilemap.cols*PP.tilemap.rows:0;
+  const exportLevel=()=>{ const data={name,background:'background.png',collisions:PP.collisions,markers:PP.markers,markup:PP.markup,tilemap:PP.tilemap,exportedAt:new Date().toISOString()}; download(name+'_level.json',data); setLog('Exported '+name+'_level.json ('+c+' collisions, '+m+' markers, '+(PP.markup?PP.markup.length:0)+' markup, tilemap '+(PP.tilemap?('on'):'off')+')'); };
+  const exportTscn=()=>{ const data={name,collisions:PP.collisions,markers:PP.markers,markup:PP.markup,tilemap:PP.tilemap}; download(name+'.tscn',buildTscn(data)); setLog('Exported Godot scene '+name+'.tscn'); };
   return (
     <div className="panel">
-      <div className="titlebar"><h2 className="glow" style={{fontSize:15}}>Build & Export Level</h2><span className="chip">{c} collisions · {m} markers</span></div>
+      <div className="titlebar"><h2 className="glow" style={{fontSize:15}}>Build & Export Level</h2><span className="chip">{c} collisions · {m} markers · {mk} markup</span></div>
       <div className="row">
         <div className="col" style={{flex:1,minWidth:220}}><label>Level Name</label><input type="text" value={name} onChange={e=>setName(e.target.value)}/></div>
-        <div className="col"><label>Status</label><div className="chip" style={{fontSize:12}}>{c} collisions · {m} markers · {tm} tiles</div></div>
+        <div className="col"><label>Status</label><div className="chip" style={{fontSize:12}}>{c} collisions · {m} markers · {mk} markup · {tm} tiles</div></div>
       </div>
       <div className="seg">
         <button className="neon-btn" onClick={exportLevel}>Export Level JSON</button>
@@ -740,20 +640,20 @@ function OptionsPanel({toast,doc,onDoc}){
 /* =================== PIPELINE =================== */
 function PipelinePanel(setActive){
   const steps=[
-    {t:'Create art',d:'Use Editor (full Pixel Palace: layers, frames, greeble, natural shapes, effects) or Forge/Studio for palette work.',tab:'editor'},
-    {t:'Build a tilemap',d:'In Tilemap, collect tiles from your art and paint murals at any scale.',tab:'tilemap'},
-    {t:'Gather assets',d:'Use Assets to collect sprites/photos, import a folder, and route them between tools.',tab:'assets'},
-    {t:'Mark up the scan',d:'Markup Painter: load a scanned hand-drawn page and paint semantic layers (path, collision, water, hazard, interactable, zone).',tab:'markup'},
-    {t:'Trace collision',d:'Collision works in Photo mode (over a photo) or Level mode (over your tilemap).',tab:'collision'},
-    {t:'Place markers',d:'Drop player start, enemies, items, exits and saves.',tab:'markers'},
-    {t:'Build & export',d:'Name the level and export JSON / Godot .tscn. Save full project from the top bar.',tab:'build'},
-    {t:'Stitch the world',d:'Node Graph: connect pages/levels/hubs with doors into one engine-agnostic world; export graph JSON or a Godot world scene.',tab:'graph'},
+    {t:'Create art',d:'Use Editor (layers, frames, RotSprite, pixel-perfect, pattern brush, blend modes) or Studio (animation, shade finder, dithering).',tab:'editor'},
+    {t:'Build a tilemap',d:'TileMap: scan an assets folder, drag-and-drop images, or slice spritesheets. Paint with brush, random scatter, or chunk tools. Supports isometric.',tab:'tilemap'},
+    {t:'Gather assets',d:'Art Hub: central gallery with folders. All tools save here. Route assets to any panel via Edit/Anim/Map buttons.',tab:'hub'},
+    {t:'Mark up the scan',d:'Markup Painter: load a scanned page and paint semantic layers (path, collision, water, hazard, interactable, zone).',tab:'markup'},
+    {t:'Trace collision',d:'Collision: Photo mode (over any image) or Level mode (over your tilemap). Export/import JSON.',tab:'collision'},
+    {t:'Place markers',d:'Markers: drop player start, enemies, items, exits, saves. Load tilemap or photo as background.',tab:'markers'},
+    {t:'Build & export',d:'Build assembles collisions + markers + markup + tilemap. Export Level JSON, Godot .tscn, or OpenStarbound mod.',tab:'build'},
+    {t:'Stitch the world',d:'Node Graph: connect pages/levels/hubs with doors into one engine-agnostic world; export graph JSON or Godot world scene.',tab:'graph'},
   ];
   return (
     <div className="panel">
       <div className="titlebar"><h2 className="glow-c" style={{fontSize:15}}>Photo → Level Pipeline</h2><span className="chip">every tool, connected</span></div>
       {steps.map((s,i)=>(<div className="step" key={i}><div className="n">{i+1}</div><div className="col" style={{flex:1}}><div style={{fontWeight:700,color:'#eafff6'}}>{s.t}</div><div className="hint">{s.d}</div><button className="neon-btn" style={{alignSelf:'flex-start',marginTop:6}} onClick={()=>setActive(s.tab)}>Open →</button></div></div>))}
-      <div className="hint">Send assets between tabs any time: select an asset (or use “Send” on an Editor/Forge canvas) to push it to Tilemap, Collision or the gallery.</div>
+      <div className="hint">Send assets between tabs any time: use the top-bar Send menu or Art Hub route buttons (or use “Send” on an Editor/Forge canvas) to push it to Tilemap, Collision, Markup, Markers, or the Art Hub gallery.</div>
     </div>
   );
 }
@@ -762,15 +662,16 @@ function PipelinePanel(setActive){
 const HELP = {
   start:{
     heading:'Welcome to Pixel Palace',
-    blurb:`Pixel Palace is one enhanced pixel-art studio — a Pixel Studio that also has layers, per-layer frame animation, photo→pixel converters, a tilemap painter, collision/marker tools, and one-click export. Everything is connected: draw or generate art, collect it as assets, paint tilemaps, mark collisions, then export.`,
+    blurb:`Pixel Palace is a unified pixel-art studio with built-in local AI, layers, animation, photo→pixel converters, a full tilemap painter, collision/markup/marker tools, and one-click export to Godot/Starbound. Everything is connected via the Send menu and shared project state.`,
     steps:[
       `Pick a tab on the left rail. Start in Editor (the core drawing tool).`,
-      `In Editor: select a layer (right side), choose a tool (left side), set a color (palette) and brush size, then draw on the canvas.`,
+      `In Editor: select a layer, choose a tool, pick a color and brush size, then draw on the canvas.`,
       `Add frames on the bottom timeline to animate; each layer can have its own frames.`,
-      `Send finished art to Tilemap / Collision / Assets with the top-bar "Send ▾" menu.`,
-      `Use Build to export sprite sheets / GIF / Godot, and top-bar Save to store the whole project.`
+      `Send finished art to any panel with the top-bar "Send ▾" menu (Tilemap, Collision, Markup, Markers, Art Hub).`,
+      `Paint tilemaps in TileMap, trace collision in Collision, annotate scans in Markup, place spawns in Markers.`,
+      `Build assembles everything into a level export. Top-bar Save stores the full project (.pproj).`
     ],
-    note:`If a tool "does nothing", you usually need (1) an active layer selected and (2) to actually click on the canvas itself — not the surrounding UI. The canvas is the center area.`
+    note:`If a tool "does nothing", you usually need (1) an active layer selected and (2) to actually click on the canvas itself — not the surrounding UI.`
   },
   editor:{
     heading:'Editor — the core pixel studio',
@@ -838,104 +739,156 @@ const HELP = {
     note:`These are photo utilities — they need an uploaded image before anything visible happens.`
   },
   tilemap:{
-    heading:'Tilemap',
-    blurb:`Collect tiles from your art and paint murals / levels at any scale.`,
+    heading:'TileMap (TileMaker DOT)',
+    blurb:`Full tilemap painter with three asset layers (tiles, objects, NPCs), brush/random scatter/chunk tools, isometric mode, and Tiled integration.`,
     steps:[
-      `Collect tiles first: in Editor/Forge draw a tile, then top-bar "Send ▾ → Tilemap (source)" — or import a tileset image.`,
-      `Select a tile from the tile strip, then click/drag on the grid to paint.`,
-      `Adjust tile size and grid dimensions in the panel.`,
-      `Send the tilemap to Collision (Level mode) or Build to export.`
+      `Scan an assets folder (F4) to load your tile PNGs into the palette, or drag-and-drop images onto the sidebar.`,
+      `Select a tile from the sidebar, then click/drag on the grid to paint.`,
+      `Use Random Scatter for variety, Chunk Tool to select/copy regions, and Notes for annotations.`,
+      `Toggle Isometric mode for diamond-projection tilemaps.`,
+      `The tilemap auto-publishes to PP.tilemap so Collision, Markers, and Build can use it.`,
+      `Export as Tiled JSON, TMX, TMJ, CSV, or open directly in Tiled.`
     ],
     tools:[
-      {name:'Tile strip', desc:`Your collected tiles; click to select the active tile.`},
-      {name:'Paint grid', desc:`Click/drag to place the selected tile.`},
-      {name:'Tile size / grid', desc:`Sets pixel size of each tile and the map dimensions.`}
+      {name:'Brush (o)', desc:`Paint single tiles on the grid with the selected tile(s).`},
+      {name:'Random Scatter (Y2)', desc:`Click multiple tiles in the sidebar to build a selection, then paint with random picks from the set.`},
+      {name:'Chunk Tool (Y)', desc:`Drag to select a rectangular region. Save/load chunks as .tmdot files for modular level design.`},
+      {name:'Notes (S)', desc:`Click to drop annotated pins with colored labels. Cycle colors with the dot button.`},
+      {name:'Scan Assets Folder', desc:`Opens a folder picker; reads tiles/, objects/, npcs/ subfolders for PNGs.`},
+      {name:'Slice Spritesheet', desc:`Imports a PNG and slices it into tileSize×tileSize tiles.`},
+      {name:'Import Tiled JSON/TMJ', desc:`Loads a previously exported Tiled map JSON back into the editor.`},
+      {name:'Transform (H / V / 90°)', desc:`Flip or rotate the entire tilemap grid.`},
+      {name:'Export (.TMX / .TMJ / JSON / CSV / .LVL)', desc:`Export the tilemap in various formats, always accompanied by a tilesheet PNG.`},
+      {name:'Open in Tiled', desc:`Writes tilesheet.png + tilemap.tmx to a folder and launches the bundled Tiled editor.`}
     ],
-    note:`No tiles yet? Use "Send ▾ → Tilemap" from Editor/Forge, or import a tileset PNG.`
+    note:`Send → Tilemap from any editor pushes the image into the tile palette. Toggle "Slice as grid" for spritesheets, or turn it off to add whole images as single tiles.`
   },
   assets:{
-    heading:'Assets',
-    blurb:`A gallery of everything you have made or imported, with a folder picker to pull in existing art.`,
+    heading:'Art Hub',
+    blurb:`Central gallery of all your art. Every tool saves here automatically. Organize with folders, route assets to any panel, and export to disk.`,
     steps:[
       `Use "Send ▾ → Assets gallery" from any editor/forge tab to drop art here.`,
-      `Or click the folder button to import a whole folder of images.`,
-      `Click an asset, then Send it to Editor (new layer) / Tilemap / Collision.`
+      `Or click Upload Files to add images, or Import Folder to scan a directory.`,
+      `Click an asset's route buttons: Edit (→ Editor), Anim (→ Studio), Map (→ TileMap).`,
+      `Organize with folders: use the folder bar at the top, or click 📁 to move assets.`,
+      `Export to disk: .PNG or .JSON buttons on each asset.`
     ],
     tools:[
-      {name:'Gallery', desc:`Thumbnails of collected assets.`},
-      {name:'Folder picker', desc:`Imports a local folder of images into the gallery.`},
-      {name:'Send', desc:`Routes the selected asset to another tab.`}
+      {name:'Gallery', desc:`Thumbnails of collected assets with route/export buttons.`},
+      {name:'Upload Files / Import Folder', desc:`Add images from disk.`},
+      {name:'Fetch Inbox', desc:`Pulls all pending Send data into the gallery.`},
+      {name:'Route buttons', desc:`Send assets to Editor, Studio, or TileMap.`}
     ]
   },
   collision:{
-    heading:'Collision',
-    blurb:`Define collision/trigger shapes. Two modes: Photo (trace over a photo) and Level (trace over your tilemap).`,
+    heading:'Collision Painter',
+    blurb:`Define collision/trigger shapes over photos or your tilemap. Two modes: Photo (trace over any image) and Level (trace over the TileMap grid). All shapes feed into Build export.`,
     steps:[
       `Choose mode: Photo or Level.`,
       `Photo: upload/load an image (or Send one from Editor/Forge) then draw collision shapes on top.`,
-      `Level: load your tilemap, then mark solid/trigger zones.`,
-      `Shapes can be platform, hazard, etc. Send to Build for export.`
+      `Level: click "Level / Tilemap Mode" to load the tilemap as background, then mark collision zones.`,
+      `Pick a shape type (platform, wall, slope, one-way, kill zone), click to place points, then Finish.`,
+      `Export JSON to save shapes, or Load JSON to restore previously saved shapes.`,
+      `All shapes are included automatically in Build export (JSON + Godot .tscn).`
     ],
     tools:[
       {name:'Photo mode', desc:`Overlays collision shapes on a photo/imported image.`},
-      {name:'Level mode', desc:`Overlays collision on the tilemap grid.`},
-      {name:'Shape types (platform/hazard/trigger)', desc:`Categorize each collision region.`}
-    ]
+      {name:'Level / Tilemap Mode', desc:`Loads the tilemap grid as background for designing level collision.`},
+      {name:'Shape types', desc:`Platform (walkable), Wall, Slope, One-Way Platform, Kill Zone — each with a distinct color.`},
+      {name:'Export / Load JSON', desc:`Save collision shapes to disk or reload them later.`}
+    ],
+    note:`Shapes must have 3+ points. Click Finish to complete a shape, Cancel to abort. All collision data feeds into Build export automatically.`
   },
   markers:{
-    heading:'Markers',
-    blurb:`Drop annotated points: player start, enemies, items, exits, save points.`,
+    heading:'Game Markers',
+    blurb:`Place annotated spawn/exit/save points on top of photos or your tilemap. All markers feed into Build export.`,
     steps:[
-      `Load the image/tilemap you are annotating.`,
-      `Click to place a marker; choose its type (player_start, enemy, item, exit, save).`,
-      `Markers export with the Build step.`
+      `Load a background: use Load Photo, Use Sent (from top-bar Send), or Load Tilemap.`,
+      `Choose a marker type from the toolbar (Player Start, Enemy Spawn, Item Pickup, Pipe/Exit, Save Point).`,
+      `Click on the canvas to place markers. Each shows its glyph and color.`,
+      `All markers are included automatically in Build export (JSON + Godot .tscn).`
     ],
     tools:[
-      {name:'Player start', desc:`Spawn point.`},
-      {name:'Enemy / Item / Exit / Save', desc:`Other annotated positions.`}
-    ]
+      {name:'Player Start (P)', desc:`Green spawn point marker.`},
+      {name:'Enemy Spawn (E)', desc:`Pink enemy spawn marker.`},
+      {name:'Item Pickup (I)', desc:`Gold item pickup marker.`},
+      {name:'Pipe / Exit (X)', desc:`Cyan exit/transition marker.`},
+      {name:'Save Point (S)', desc:`Purple save point marker.`},
+      {name:'Export JSON', desc:`Saves marker positions to a JSON file.`}
+    ],
+    note:`Markers store relative (x, y) positions (0–1 range), so they scale with any resolution. All marker data feeds into Build export automatically.`
   },
   build:{
-    heading:'Build & Export',
-    blurb:`Turn the project into usable game assets.`,
+    heading:'Build & Export Level',
+    blurb:`Assembles collisions, markers, markup paths, and tilemap into shippable game assets. Exports to JSON, Godot .tscn, or OpenStarbound mod.`,
     steps:[
-      `Name the level/project.`,
-      `Choose an export: sprite sheet, GIF/APNG, Godot .tscn/.tres, or JSON.`,
-      `For layered animation you can export a baked composite (recommended) or each layer separately.`,
-      `Use top-bar Save to keep the full editable project (.pproj).`
+      `Name the level in the text field.`,
+      `All data (collisions, markers, markup, tilemap) is collected automatically from the other tabs.`,
+      `Export Level JSON: full level data including all collision shapes, markers, markup paths, and tilemap.`,
+      `Export Godot .tscn: generates a Godot scene with StaticBody2D, Area2D, Line2D (markup), and Marker2D nodes.`,
+      `Export OpenStarbound Mod: packs tiles as .material + .dungeon for Starbound.`,
+      `Use top-bar Save to keep the full editable project (.pproj) with all panel state.`
     ],
     tools:[
-      {name:'Sprite sheet', desc:`All frames tiled into one PNG.`},
-      {name:'GIF / APNG', desc:`Animated image, composited.`},
-      {name:'Godot .tscn / .tres', desc:`Scene/resource for Godot.`},
-      {name:'JSON', desc:`Raw project data.`}
+      {name:'Level JSON', desc:`Complete level data: collisions + markers + markup + tilemap + metadata.`},
+      {name:'Godot .tscn', desc:`Godot scene file with collision polygons, markers, markup lines, and tilemap node.`},
+      {name:'OpenStarbound Mod', desc:`Starbound-compatible .zip with materials and dungeon files.`},
+      {name:'Save (.pproj)', desc:`Full project state: options, assets, collisions, markers, markup, tilemap, graph, editor state.`}
     ],
-    note:`Per-layer independent animation is previewable in-editor; for export you bake to a composite timeline or export layers separately (engines composite, they don't keep layer stacks).`
+    note:`Markup paths (from the Markup tab) are exported as Godot Line2D nodes with color and type metadata. All data persists in .pproj save files.`
   },
   options:{
     heading:'Options',
-    blurb:`Global settings: accent color, grid, default tile size and tool defaults.`,
+    blurb:`Global settings: accent color, grid, tile size, cursor style, and more. Tile size syncs with TileMap.`,
     steps:[
-      `Change the accent theme color.`,
-      `Toggle grid / set tile size.`,
-      `Settings save to the project folder as JSON.`
+      `Change the accent theme color — recolors the whole UI live.`,
+      `Toggle grid on/off.`,
+      `Set tile size (8/16/32/64) — shared with TileMap.`,
+      `Choose cursor style: Cross, Dot, or None.`,
+      `No Doubles: skip drawing pixels that already match the active color.`,
+      `Settings persist in the project (top-bar Save) and can be exported as settings.json.`
     ],
     tools:[
       {name:'Accent', desc:`UI highlight color.`},
-      {name:'Grid / tile size', desc:`Snap & tile defaults shared across tabs.`}
+      {name:'Grid', desc:`Toggle grid overlay across tabs.`},
+      {name:'Tile Size', desc:`Default tile size, shared with TileMap panel.`},
+      {name:'Cursor Style', desc:`Cross, Dot, or None for the drawing cursor.`},
+      {name:'No Doubles', desc:`Skip redundant pixels when drawing.`}
     ]
   },
   pipeline:{
     heading:'Full Pipeline (recommended order)',
-    blurb:`One coherent flow from blank to exported game asset.`,
+    blurb:`One coherent flow from blank to exported game level.`,
     steps:[
       `Editor or Forge: create your sprites / animations.`,
-      `Photo → Pixel: convert reference photos if needed.`,
-      `Assets: collect everything in one gallery.`,
-      `Tilemap: paint a level from your tiles.`,
-      `Collision + Markers: annotate the level.`,
-      `Build: export. Top-bar Save: keep the project.`
+      `Photo → Pixel: convert reference photos if needed (Water, Alpha, Extract).`,
+      `Art Hub: collect everything in the central gallery.`,
+      `TileMap: paint a level from your tile assets (scan folder, drag-drop, or slice spritesheets).`,
+      `Collision: trace collision shapes over the tilemap (Level mode) or a photo (Photo mode).`,
+      `Markup: paint semantic layers (path, collision, water, hazard, interactable, zone) over scans.`,
+      `Markers: place player start, enemies, items, exits, saves.`,
+      `Build: export level JSON, Godot scene, or OpenStarbound mod. Top-bar Save for full project.`
     ]
+  },
+  markup:{
+    heading:'Markup Painter',
+    blurb:`Paint semantic layers on scanned hand-drawn pages or tilemaps. Each layer color represents a meaning (path, collision, water, hazard, interactable, zone).`,
+    steps:[
+      `Load a scanned page or tilemap (Load Scan, Use Sent, or Level/Tilemap Mode).`,
+      `Pick or add a layer (Path, Collision, Water, Hazard, Interactable, Zone).`,
+      `Click to place points, then Finish to complete a stroke. Semi-transparent fills show the area.`,
+      `Toggle layer visibility with the eye icon. Add new layers with "+ Layer".`,
+      `Markup paths export to Godot as Line2D nodes, and are included in .pproj save files.`
+    ],
+    tools:[
+      {name:'Path / Walk', desc:`Green walkable path layer.`},
+      {name:'Collision', desc:`Cyan collision region layer.`},
+      {name:'Water', desc:`Blue water region layer.`},
+      {name:'Hazard / Kill', desc:`Pink hazard/death zone layer.`},
+      {name:'Interactable', desc:`Gold interactable object layer.`},
+      {name:'Zone / Region', desc:`Purple general zone/region layer.`}
+    ],
+    note:`Markup data is saved in .pproj projects and exported in Build (both JSON and Godot .tscn as Line2D nodes).`
   }
 };
 function InfoPanel(){
@@ -950,6 +903,7 @@ function InfoPanel(){
     {id:'assets',title:'▣ Assets'},
     {id:'collision',title:'▱ Collision'},
     {id:'markers',title:'⌖ Markers'},
+    {id:'markup',title:'✎ Markup'},
     {id:'build',title:'▤ Build & Export'},
     {id:'options',title:'⚙ Options'},
     {id:'pipeline',title:'⇄ Full Pipeline'},
@@ -1041,7 +995,7 @@ function App(){
     const iframeState=await requestEditorState();
     return { id: projIdRef.current||(projIdRef.current=newProjId()), name: projNameRef.current||'Untitled',
       updatedAt: Date.now(), active: active, doc: docRef.current,
-      data:{ options:PP.options, assets:PP.assets, collisions:PP.collisions, markers:PP.markers, tilemap:PP.tilemap, graph:PP.graph, iframeState } };
+      data:{ options:PP.options, assets:PP.assets, collisions:PP.collisions, markers:PP.markers, markup:PP.markup, tilemap:PP.tilemap, graph:PP.graph, iframeState } };
   };
   const applySnapshot=(snap)=>{
     const d=snap&&snap.data; if(!d) return;
@@ -1049,6 +1003,7 @@ function App(){
     if(d.assets) PP.assets=d.assets;
     if(d.collisions) PP.collisions=d.collisions;
     if(d.markers) PP.markers=d.markers;
+    if(d.markup) PP.markup=d.markup;
     if(d.tilemap) PP.tilemap=d.tilemap;
     if(d.graph){ PP.graph=Array.isArray(d.graph)?d.graph:(d.graph.nodes||[]); PP.graph.__edges=d.graph.__edges||d.graph.edges||[]; }
     if(d.doc) Object.assign(docRef.current, d.doc);
@@ -1202,6 +1157,8 @@ function App(){
                 <button onClick={()=>sendCurrentCanvas('tilemap')}>→ Tilemap (source)</button>
                 <button onClick={()=>sendCurrentCanvas('collision')}>→ Collision (bg)</button>
                 <button onClick={()=>sendCurrentCanvas('collisionBg')}>→ Collision background</button>
+                <button onClick={()=>sendCurrentCanvas('markup')}>→ Markup (bg)</button>
+                <button onClick={()=>sendCurrentCanvas('markers')}>→ Markers (bg)</button>
                 <button onClick={()=>sendCurrentCanvas('assets')}>→ Assets gallery</button>
               </div>
             </div>

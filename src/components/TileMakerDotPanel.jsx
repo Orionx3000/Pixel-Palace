@@ -9,14 +9,15 @@ export default function TileMakerDotPanel({ toast }) {
   const [activeTool, setActiveTool] = useState('brush'); // brush, random, chunk, note
   const [theme, setTheme] = useState('dark');
   const [basePath, setBasePath] = useState('');
-  const [tileSize, setTileSize] = useState(32);
+   const [tileSize, setTileSize] = useState(PP.options?.tileSize || 32);
   const [gridSize, setGridSize] = useState({ w: 50, h: 50 });
   const [zoom, setZoom] = useState(1);
   
   const [assets, setAssets] = useState({ tiles: [], objects: [], npcs: [] });
   const [selectedIds, setSelectedIds] = useState([]); // for random brush
   const [incomingLayer, setIncomingLayer] = useState('tiles'); // where "Send → Tilemap" lands: tiles | objects | npcs
-  const [sourceImg, setSourceImg] = useState(null); // image sent from the hub
+   const [sourceImg, setSourceImg] = useState(null); // image sent from the hub
+   const [sliceAsGrid, setSliceAsGrid] = useState(true); // true = slice into grid, false = add as whole tile
   const [notes, setNotes] = useState([]); // annotated notes {x,y,text,color}
   const [chunkRect, setChunkRect] = useState(null); // {x0,y0,x1,y1}
   const [tiledDir, setTiledDir] = useState(''); // folder where Tiled project files are written
@@ -24,14 +25,29 @@ export default function TileMakerDotPanel({ toast }) {
   const noteColors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#a855f7', '#ec4899'];
   const [noteColorIdx, setNoteColorIdx] = useState(0);
   
-  const [gridData, setGridData] = useState([]); // Map of 'x,y' -> { id, layer: 'tiles|objects|npcs', z: number }
-  const canvasRef = useRef(null);
+   const [gridData, setGridData] = useState([]); // Map of 'x,y' -> { id, layer: 'tiles|objects|npcs', z: number }
+   const canvasRef = useRef(null);
+
+   // Sync tileSize back to PP.options so Options panel stays in sync
+   useEffect(() => { if (window.PP && window.PP.options) window.PP.options.tileSize = tileSize; }, [tileSize]);
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [chunkStart, setChunkStart] = useState(null);
 
-  
-  
+   const handleDrop = (e) => {
+      e.preventDefault();
+      const files = [...(e.dataTransfer.files || [])].filter(f => f.type.startsWith('image/'));
+      if (!files.length) return;
+      files.forEach(f => {
+         const r = new FileReader();
+         r.onload = () => ingestImage(r.result);
+         r.readAsDataURL(f);
+      });
+      toast(`Dropping ${files.length} image(s) into tile palette`);
+   };
+   const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+
+
   const getCell = (e) => {
      const rect = canvasRef.current.getBoundingClientRect();
      if (!isoMode) {
@@ -119,24 +135,34 @@ export default function TileMakerDotPanel({ toast }) {
       img.onload = () => {
          setSourceImg(dataURL);
          const ts = tileSize;
-         const cols = Math.max(1, Math.floor(img.width / ts));
-         const rows = Math.max(1, Math.floor(img.height / ts));
          const newTiles = [];
-         for (let ry = 0; ry < rows; ry++) for (let cx = 0; cx < cols; cx++) {
+         if (!sliceAsGrid) {
+            // Add as a single whole tile (resize to tile size)
             const oc = document.createElement('canvas'); oc.width = ts; oc.height = ts;
             const octx = oc.getContext('2d');
-            octx.drawImage(img, cx * ts, ry * ts, ts, ts, 0, 0, ts, ts);
-            newTiles.push({ id: Date.now() + newTiles.length + cx + ry * 100, name: `sent_${cx}_${ry}`, src: oc.toDataURL('image/png') });
+            octx.drawImage(img, 0, 0, ts, ts);
+            newTiles.push({ id: Date.now() + 1, name: 'sent_whole', src: oc.toDataURL('image/png') });
+            toast(`Added image as 1 whole tile (${img.width}×${img.height} → ${ts}px)`);
+         } else {
+            // Slice into grid (original behavior)
+            const cols = Math.max(1, Math.floor(img.width / ts));
+            const rows = Math.max(1, Math.floor(img.height / ts));
+            for (let ry = 0; ry < rows; ry++) for (let cx = 0; cx < cols; cx++) {
+               const oc = document.createElement('canvas'); oc.width = ts; oc.height = ts;
+               const octx = oc.getContext('2d');
+               octx.drawImage(img, cx * ts, ry * ts, ts, ts, 0, 0, ts, ts);
+               newTiles.push({ id: Date.now() + newTiles.length + cx + ry * 100, name: `sent_${cx}_${ry}`, src: oc.toDataURL('image/png') });
+            }
+            toast(`Collected ${newTiles.length} tiles from sent image (${cols}×${rows})`);
          }
-          setAssets(prev => {
-             const maxId = Math.max(0, ...prev.tiles.map(a => a.id), ...prev.objects.map(a => a.id), ...prev.npcs.map(a => a.id));
-             let nid = maxId + 1;
-             const arr = [...prev[incomingLayer]];
-             newTiles.forEach(t => arr.push({ ...t, id: nid++ }));
-             return { ...prev, [incomingLayer]: arr };
-          });
-          toast(`Collected ${newTiles.length} tiles from sent image (${cols}×${rows})`);
-       };
+         setAssets(prev => {
+            const maxId = Math.max(0, ...prev.tiles.map(a => a.id), ...prev.objects.map(a => a.id), ...prev.npcs.map(a => a.id));
+            let nid = maxId + 1;
+            const arr = [...prev[incomingLayer]];
+            newTiles.forEach(t => arr.push({ ...t, id: nid++ }));
+            return { ...prev, [incomingLayer]: arr };
+         });
+      };
       img.onerror = () => toast('Failed to load sent image');
       img.src = dataURL;
    };
@@ -264,16 +290,64 @@ export default function TileMakerDotPanel({ toast }) {
        downloadText('tilemap_' + Date.now() + '.lvl', out);
        toast('Exported ultra-light .LVL');
     };
-    const importSpritesheet = async () => {
-       try {
-          const p = await open({ multiple: false, filters: [{ name: 'PNG', extensions: ['png'] }] });
-          if (!p) return;
-          const bytes = await readFile(p);
-          let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
-          ingestImage('data:image/png;base64,' + btoa(bin));
-          toast('Sliced spritesheet into tiles');
-       } catch (e) { toast('Spritesheet import failed: ' + e); }
-    };
+     const importSpritesheet = async () => {
+        try {
+           const p = await open({ multiple: false, filters: [{ name: 'PNG', extensions: ['png'] }] });
+           if (!p) return;
+           const bytes = await readFile(p);
+           let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+           ingestImage('data:image/png;base64,' + btoa(bin));
+           toast('Sliced spritesheet into tiles');
+        } catch (e) { toast('Spritesheet import failed: ' + e); }
+     };
+     const importTiledJson = async () => {
+        try {
+           const p = await open({ multiple: false, filters: [{ name: 'Tiled JSON', extensions: ['json', 'tmj'] }] });
+           if (!p) return;
+           const bytes = await readFile(p);
+           let txt = ''; bytes.forEach(b => txt += String.fromCharCode(b));
+           const map = JSON.parse(txt);
+           if (!map.layers || !map.tilesets) { toast('Not a valid Tiled JSON'); return; }
+           const ts = map.tilewidth || tileSize;
+           const W = map.width || 50, H = map.height || 50;
+           setTileSize(ts);
+           setGridSize({ w: W, h: H });
+           // Import tileset images if available
+           const newTiles = [];
+           for (const tsDef of map.tilesets) {
+              if (tsDef.image) {
+                 // Try to load the tilesheet image
+                 const imgSrc = tsDef.image.startsWith('/') ? convertFileSrc(tsDef.image) : tsDef.image;
+                 const img = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = imgSrc; });
+                 if (img) {
+                    const cols = tsDef.columns || Math.ceil(img.width / ts);
+                    const rows = Math.ceil((tsDef.tilecount || cols * Math.ceil(img.height / ts)) / cols);
+                    for (let ry = 0; ry < rows; ry++) for (let cx = 0; cx < cols; cx++) {
+                       const gid = (tsDef.firstgid || 1) + ry * cols + cx;
+                       const oc = document.createElement('canvas'); oc.width = ts; oc.height = ts;
+                       const octx = oc.getContext('2d');
+                       octx.drawImage(img, cx * ts, ry * ts, ts, ts, 0, 0, ts, ts);
+                       newTiles.push({ id: gid, name: `imported_${gid}`, src: oc.toDataURL('image/png') });
+                    }
+                 }
+              }
+           }
+           if (newTiles.length) {
+              setAssets(prev => ({ ...prev, tiles: [...prev.tiles, ...newTiles] }));
+           }
+           // Import layer data
+           const layer = (map.layers || []).find(l => l.type === 'tilelayer');
+           if (layer && layer.data) {
+              const gd = [];
+              for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+                 const gid = layer.data[y * W + x] || 0;
+                 if (gid > 0) gd.push({ x, y, z: 0, id: gid });
+              }
+              setGridData(gd);
+           }
+           toast('Imported Tiled JSON (' + W + '×' + H + ', ' + newTiles.length + ' tiles)');
+        } catch (e) { toast('Tiled JSON import failed: ' + e); }
+     };
     const saveChunk = () => {
        if (!chunkRect) { toast('Select a chunk first (Chunk tool → drag)'); return; }
        const sel = gridData.filter(it => it.x >= chunkRect.x0 && it.x <= chunkRect.x1 && it.y >= chunkRect.y0 && it.y <= chunkRect.y1)
@@ -525,7 +599,7 @@ export default function TileMakerDotPanel({ toast }) {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
         {/* LEFT SIDEBAR - ASSETS */}
-        <div style={{ width: '320px', display: 'flex', flexDirection: 'column', borderRight: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', background: theme === 'dark' ? '#252525' : '#e8e8e8' }}>
+        <div style={{ width: '320px', display: 'flex', flexDirection: 'column', borderRight: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', background: theme === 'dark' ? '#252525' : '#e8e8e8' }} onDrop={handleDrop} onDragOver={handleDragOver}>
            <div style={{ display: 'flex', borderBottom: theme === 'dark' ? '1px solid #444' : '1px solid #ccc' }}>
               <button onClick={() => setActiveTab('tiles')} style={{ flex: 1, padding: '12px 10px', background: activeTab === 'tiles' ? (theme === 'dark' ? '#333' : '#fff') : 'transparent', color: theme === 'dark' ? '#fff' : '#000', border: 'none', cursor: 'pointer', fontWeight: activeTab === 'tiles' ? 'bold' : 'normal' }}>Tiles</button>
               <button onClick={() => setActiveTab('objects')} style={{ flex: 1, padding: '12px 10px', background: activeTab === 'objects' ? (theme === 'dark' ? '#333' : '#fff') : 'transparent', color: theme === 'dark' ? '#fff' : '#000', border: 'none', cursor: 'pointer', fontWeight: activeTab === 'objects' ? 'bold' : 'normal' }}>Objects</button>
@@ -535,6 +609,7 @@ export default function TileMakerDotPanel({ toast }) {
            <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                <button onClick={scanAssets} className="neon-btn vi" style={{ width: '100%' }}>" Scan Assets Folder (F4)</button>
                 <button onClick={importSpritesheet} className="neon-btn vi" style={{ width: '100%' }}>⊞ Slice Spritesheet (PNG)</button>
+                <button onClick={importTiledJson} className="neon-btn" style={{ width: '100%' }}>↗ Import Tiled JSON/TMJ</button>
                 <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
                   Send&nbsp;→&nbsp;
                   <select value={incomingLayer} onChange={e=>setIncomingLayer(e.target.value)} style={{ background: '#000', color: '#fff', border: '1px solid #444', flex: 1 }}>
@@ -543,15 +618,19 @@ export default function TileMakerDotPanel({ toast }) {
                     <option value="npcs">NPCs</option>
                   </select>
                 </label>
-                <div style={{ fontSize: 10, opacity: 0.6 }}>Images from Studio / Editor / water / extract land in this layer.</div>
+                <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={sliceAsGrid} onChange={e=>setSliceAsGrid(e.target.checked)} style={{accentColor:'#22c55e'}} />
+                  Slice sent images as grid
+                </label>
+                <div style={{ fontSize: 10, opacity: 0.6 }}>{sliceAsGrid?'Images are sliced into tileSize tiles.':'Images are added as one whole tile.'}</div>
                <div style={{ fontSize: '11px', color: '#888' }}>
                   Base: {basePath || 'None Selected'}
                </div>
                {sourceImg && (
                   <div style={{ marginTop: 10 }}>
-                     <div style={{ fontSize: 11, marginBottom: 4, color: '#9ad' }}>Sent image (auto-collected as tiles):</div>
+                      <div style={{ fontSize: 11, marginBottom: 4, color: '#9ad' }}>Sent image ({sliceAsGrid?'sliced as grid':'added as whole tile'}):</div>
                      <img src={sourceImg} style={{ width: '100%', imageRendering: 'pixelated', border: '1px solid #555', borderRadius: 4 }} />
-                     <button onClick={() => ingestImage(sourceImg)} className="neon-btn vi" style={{ width: '100%', marginTop: 6 }}>↻ Re-collect tiles ({tileSize}px)</button>
+                      <button onClick={() => ingestImage(sourceImg)} className="neon-btn vi" style={{ width: '100%', marginTop: 6 }}>↻ Re-collect ({sliceAsGrid?'grid':'whole'})</button>
                   </div>
                )}
             </div>
@@ -574,11 +653,11 @@ export default function TileMakerDotPanel({ toast }) {
                     </div>
                  </div>
               ))}
-              {assets[activeTab].length === 0 && (
-                 <div style={{ padding: 20, textAlign: 'center', color: '#888', fontStyle: 'italic' }}>
-                    Click Scan Assets to load images.<br/><br/>Images must be named like:<br/>`101_grass.png`
-                 </div>
-              )}
+               {assets[activeTab].length === 0 && (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#888', fontStyle: 'italic' }}>
+                     Click Scan Assets to load images, or drag-and-drop images here.<br/><br/>Images must be named like:<br/>`101_grass.png`
+                  </div>
+               )}
            </div>
         </div>
         
