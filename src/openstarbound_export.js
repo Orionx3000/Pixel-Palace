@@ -118,17 +118,53 @@ export async function buildOpenStarboundLevelFiles(name, tilemap, level) {
   const exits = ents.filter(e => e.type === 'exit');
   const foes = ents.filter(e => e.type === 'enemy' || e.type === 'boss');
   const sp = spawn ? [Number(spawn.x), Number(spawn.y)] : [Math.floor(base.cols / 2), Math.floor(base.rows / 2)];
+
+  // Collision zones — mapped to Starbound region definitions
+  const collisionZones = (lvl.collisions || []).map((sh, ci) => {
+    const pts = (sh.points || []).map(p => ({ x: Math.round(p.x * base.cols), y: Math.round(p.y * base.rows) }));
+    const cx = pts.reduce((a, p) => a + p.x, 0) / (pts.length || 1);
+    const cy = pts.reduce((a, p) => a + p.y, 0) / (pts.length || 1);
+    return { id: `collision_${ci}`, type: sh.type || 'solid', center: [cx, cy], points: pts };
+  });
+
+  // Markup paths — mapped to Starbound mission markers
+  const markupPaths = [];
+  (lvl.markup || []).forEach((mk, mi) => {
+    (mk.paths || []).forEach((path, pi) => {
+      if (!path || path.length < 2) return;
+      const pts = path.map(p => ({ x: Math.round(p.x * base.cols), y: Math.round(p.y * base.rows) }));
+      markupPaths.push({ id: `markup_${mi}_${pi}`, type: mk.type || 'path', color: mk.color || '#10b981', points: pts });
+    });
+  });
+
   const lua =
     `-- Level "${name}" (Pixel Palace)\n` +
-    `-- Spawn / enemies / exits come from the Pixel Palace Level editor (markers).\n` +
+    `-- Spawn / enemies / exits / collisions / markup from the Pixel Palace Level editor.\n` +
     `-- Enemies with an assigned sprite become real monsters in /monsters/.\n` +
+    `-- Collision zones define solid/kill/one-way regions. Markup paths are navigational hints.\n` +
     `-- NOTE: validate coordinates + APIs in-engine; Starbound world space is pixels (tile*8), Y-up.\n` +
     `local spawnTile = { ${sp[0]}, ${sp[1]} }\n` +
     `local enemies = ${JSON.stringify(foes.map(e => ({ id: e.id || 'monster', x: Number(e.x), y: Number(e.y) })))}\n` +
-    `local exits = ${JSON.stringify(exits.map(e => ({ x: Number(e.x), y: Number(e.y) })))}\n\n` +
+    `local exits = ${JSON.stringify(exits.map(e => ({ x: Number(e.x), y: Number(e.y) })))}\n` +
+    `local collisions = ${JSON.stringify(collisionZones)}\n` +
+    `local markupPaths = ${JSON.stringify(markupPaths)}\n\n` +
     `function onInit()\n` +
     `  player.setPosition({ spawnTile[1] * 8, spawnTile[2] * 8 })\n` +
     `  for _, e in ipairs(enemies) do world.spawnMonster(e.id, { e.x * 8, e.y * 8 }) end\n` +
+    `  -- Collision zones: apply world-specific collision flags per zone type\n` +
+    `  for _, zone in ipairs(collisions) do\n` +
+    `    if zone.type == "solid" then\n` +
+    `      -- Solid collisions are handled by tile collision flags in the dungeon\n` +
+    `    elseif zone.type == "killzone" then\n` +
+    `      -- Kill zones: damage player on enter (implement per-engine)\n` +
+    `    elseif zone.type == "oneway" then\n` +
+    `      -- One-way platforms: allow jump-through from below\n` +
+    `    end\n` +
+    `  end\n` +
+    `  -- Markup paths: available as navigation/routing data for scripts\n` +
+    `  for _, mk in ipairs(markupPaths) do\n` +
+    `    -- Example: if mk.type == "patrol" then spawnPatrol(mk.points) end\n` +
+    `  end\n` +
     `end\n\n` +
     `function onUpdate(dt)\n` +
     `  -- TODO: when player reaches an exit tile (or boss defeated), complete the level:\n` +

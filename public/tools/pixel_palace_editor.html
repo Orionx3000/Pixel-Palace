@@ -1280,11 +1280,12 @@ function App(){
       const d=e.data||{};
       if(d.type==='AI_RESULT'){
         setGenLoading(false); setSidecarStatus('ready');
-        if(d.image){
+        const imgUrl = d.image || (d.data && d.data.image);
+        if(imgUrl){
           const img=new Image();
-          img.onload=()=>setGenResult({image:d.image, width:img.naturalWidth||genWidth, height:img.naturalHeight||genHeight});
+          img.onload=()=>setGenResult({image:imgUrl, width:img.naturalWidth||genWidth, height:img.naturalHeight||genHeight});
           img.onerror=()=>setGenError('AI image failed to decode');
-          img.src=d.image;
+          img.src=imgUrl;
         } else { setGenResult(null); }
       } else if(d.type==='AI_ERROR'){
         setGenLoading(false); setSidecarStatus('error'); setGenError(d.error||'Generation failed');
@@ -1306,6 +1307,26 @@ function App(){
       parent.postMessage({type:'GENERATE_AI', prompt, size: genWidth, palette: palette, frames: 1, steps: genSteps, cfg: genCfg, mode: genMode}, '*');
     }catch(e){
       setGenError(e.message||'Generation failed');
+      setGenLoading(false);
+    }
+  };
+
+  const generateImg2Img=async()=>{
+    if(!genPrompt.trim()||genLoading)return;
+    setGenLoading(true);setGenError(null);setGenResult(null);setSidecarStatus('generating');
+    try{
+      // Capture current frame as base64 data URL
+      const ec=document.createElement('canvas');ec.width=w;ec.height=h;
+      const ectx=ec.getContext('2d');ectx.imageSmoothingEnabled=false;
+      for(const layer of layers){
+        if(!layer.visible)continue;
+        const f=layer.frames[layer.currentFrame];
+        if(f)ectx.drawImage(f.canvas,0,0);
+      }
+      const imgData=ec.toDataURL('image/png');
+      parent.postMessage({type:'GENERATE_AI_IMG2IMG', image:imgData, prompt:genPrompt.trim(), strength:genStrength, model:'2dpixel', palette:palette, steps:genSteps, cfg:genCfg}, '*');
+    }catch(e){
+      setGenError(e.message||'img2img failed');
       setGenLoading(false);
     }
   };
@@ -1536,9 +1557,10 @@ function App(){
     const c=canvasRef.current;
     if(!display)return;
     const dpr=1;
-    const dw=w*zoom/100* dpr,dh=h*zoom/100* dpr;
+    const tMul=tiledPreview?3:1;
+    const dw=w*zoom/100* dpr*tMul,dh=h*zoom/100* dpr*tMul;
     display.width=dw;display.height=dh;
-    display.style.width=(w*zoom/100)+'px';display.style.height=(h*zoom/100)+'px';
+    display.style.width=(w*zoom/100*tMul)+'px';display.style.height=(h*zoom/100*tMul)+'px';
     const ctx=display.getContext('2d');
     ctx.imageSmoothingEnabled=false;
     ctx.clearRect(0,0,dw,dh);
@@ -1549,7 +1571,7 @@ function App(){
     // Draw layers
     const scale=zoom/100;
     if(tiledPreview){
-      const tw=dw*3,th=dh*3;
+      const baseDw=w*zoom/100*dpr,baseDh=h*zoom/100*dpr;
       for(let ty=0;ty<3;ty++)for(let tx=0;tx<3;tx++){
         for(const layer of layers){
           if(!layer.visible)continue;
@@ -1557,13 +1579,13 @@ function App(){
           if(!frame)continue;
           ctx.globalAlpha=layer.opacity;
           ctx.globalCompositeOperation=layer.blendMode||'source-over';
-          ctx.drawImage(frame.canvas,tx*dw,ty*dh,dw,dh);
+          ctx.drawImage(frame.canvas,tx*baseDw,ty*baseDh,baseDw,baseDh);
         }
       }
       ctx.globalAlpha=1;
       ctx.globalCompositeOperation='source-over';
       ctx.strokeStyle='rgba(10,185,129,.6)';ctx.lineWidth=2;
-      ctx.strokeRect(dw+1,dh+1,dw-2,dh-2);
+      ctx.strokeRect(baseDw+1,baseDh+1,baseDw-2,baseDh-2);
     } else {
       for(const layer of layers){
         if(!layer.visible)continue;
@@ -1608,7 +1630,7 @@ function App(){
     }
     // Cursor highlight
     const cursor=c===document.activeElement;
-    },[w,h,zoom,layers,mode,tileSize,uiTick,selRect,selLift,grabLift,cursorPos,cursorStyle]);
+    },[w,h,zoom,layers,mode,tileSize,uiTick,selRect,selLift,grabLift,cursorPos,cursorStyle,tiledPreview]);
 
   // ─── PLAYBACK ────────────────────────────────────────────────────────────
   useEffect(()=>{
@@ -1637,8 +1659,10 @@ const shadeColor=(hex,dl)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.s
     if(!layerCtx)return;
     const c0=hexToRgb(color), c1=hexToRgb(gradEnd);
     const dx=x1-x0, dy=y1-y0; const len=Math.hypot(dx,dy)||1;
+    const minX=Math.max(0,Math.min(x0,x1)), maxX=Math.min(w-1,Math.max(x0,x1));
+    const minY=Math.max(0,Math.min(y0,y1)), maxY=Math.min(h-1,Math.max(y0,y1));
     const img=layerCtx.getImageData(0,0,w,h), d=img.data;
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
       const i=(y*w+x)*4;
       if(d[i+3]===0)continue;
       let t=((x-x0)*dx+(y-y0)*dy)/(len*len);
@@ -1954,9 +1978,9 @@ const shadeColor=(hex,dl)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.s
         <button onClick={()=>transformArtwork('rotCW')} className="tool-btn text-xs" title="Rotate 90° CW">⟳</button>
         <button onClick={()=>setShowRotAngle(!showRotAngle)} className="tool-btn text-xs" title="RotSprite rotation (any angle)">🔄</button>
         {showRotAngle && (
-          <div className="flex items-center gap-1 text-[10px] text-neutral-400 bg-neutral-900 rounded-lg px-2 py-1 border border-neutral-700">
+          <div className="flex items-center gap-1 text-[10px] text-neutral-400 bg-neutral-900 rounded-lg px-2 py-1 border border-neutral-700 flex-shrink-0">
             <span>{rotAngle}°</span>
-            <input type="range" min={-180} max={180} step={1} value={rotAngle} onChange={e=>setRotAngle(+e.target.value)} className="w-20"/>
+            <input type="range" min={-180} max={180} step={1} value={rotAngle} onChange={e=>setRotAngle(+e.target.value)} className="w-20 flex-shrink-0"/>
             <button onClick={()=>transformArtwork('rotAngle')} className="tool-btn text-[10px]" title="Apply RotSprite rotation">Apply</button>
           </div>
         )}
@@ -1998,8 +2022,14 @@ const shadeColor=(hex,dl)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.s
         <div className="w-px h-6 bg-neutral-700 mx-1"/>
          <button onClick={()=>setShowImport(!showImport)} className="tool-btn text-[10px]" title="Import">📥</button>
         <button onClick={()=>setShowExtract(true)} className="tool-btn text-[10px]" title="Sprite extractor">✂</button>
-        <button onClick={()=>setShowExport(true)} className="tool-btn text-[10px]" title="Export">📤</button>
-        <button onClick={()=>setShowProject(true)} className="tool-btn text-[10px]" title="Project">💾</button>
+         <button onClick={()=>setShowExport(true)} className="tool-btn text-[10px]" title="Export">📤</button>
+         <button onClick={()=>setShowProject(true)} className="tool-btn text-[10px]" title="Project">💾</button>
+         <div className="w-px h-6 bg-neutral-700 mx-1"/>
+         <button onClick={generateImg2Img} disabled={genLoading} className="tool-btn text-[10px]" title={"img2img: rework current frame (strength "+genStrength.toFixed(2)+")"} style={{color:genLoading?'#f59e0b':'#22d3ee'}}>
+           {genLoading?'⏳':'🎨'} Remix
+         </button>
+         <input type="range" min={0.05} max={0.95} step={0.05} value={genStrength} onChange={e=>setGenStrength(+e.target.value)} className="w-14" title={"Strength: "+genStrength.toFixed(2)}/>
+         <input type="text" value={genPrompt} onChange={e=>setGenPrompt(e.target.value)} placeholder="Remix prompt..." className="w-28 text-[10px] bg-neutral-800 border border-neutral-700 rounded px-1 py-0.5 text-neutral-300" title="Prompt for img2img remix"/>
       </div>
 
       {/* ─── MAIN AREA ─── */}
@@ -2011,12 +2041,27 @@ const shadeColor=(hex,dl)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.s
             onMouseUp={e => setIsPanning(false)}
             onMouseLeave={e => { setIsPanning(false); setIsDrawing(false); }}
             onContextMenu={e => { e.preventDefault(); }}>
-          <div style={{position:'relative', width:w*zoom/100, height:h*zoom/100, transform:`translate(${panX}px, ${panY}px)`}}>
+          <div style={{position:'relative', width:w*zoom/100*(tiledPreview?3:1), height:h*zoom/100*(tiledPreview?3:1), transform:`translate(${panX}px, ${panY}px)`}}>
 
           <canvas ref={displayRef} style={{borderRadius:8,border:'1px solid #333',objectFit:'contain',cursor:cursorStyle==='none'?'none':cursorStyle==='cross'?'none':'none'}}
             onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={()=>{handleUp();setCursorPos(null);}}
             onTouchStart={handleDown} onTouchMove={handleMove} onTouchEnd={handleUp}
             onContextMenu={e=>e.preventDefault()}/>
+          {genResult && genResult.image && (
+            <div style={{position:'absolute',top:8,right:8,zIndex:20,background:'rgba(0,0,0,0.85)',borderRadius:8,padding:8,maxWidth:180}}>
+              <img src={genResult.image} style={{width:'100%',borderRadius:4,imageRendering:'pixelated',marginBottom:4}}/>
+              <div className="flex gap-1">
+                <button onClick={applyGenerated} className="flex-1 text-[10px] px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-white">Apply</button>
+                <button onClick={applyGeneratedNewLayer} className="flex-1 text-[10px] px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-white">Layer</button>
+                <button onClick={()=>setGenResult(null)} className="text-[10px] px-2 py-1 bg-neutral-700 hover:bg-neutral-600 rounded text-neutral-300">✕</button>
+              </div>
+            </div>
+          )}
+          {genError && (
+            <div style={{position:'absolute',bottom:8,right:8,zIndex:20,background:'rgba(180,30,30,0.9)',borderRadius:6,padding:'4px 8px',fontSize:10,color:'#fff'}}>
+              {genError} <button onClick={()=>setGenError(null)} style={{marginLeft:4,cursor:'pointer',color:'#ccc'}}>✕</button>
+            </div>
+          )}
 </div>
           {/* Timeline */}
           <div className="w-full max-w-3xl mt-2 flex-shrink-0">
@@ -2378,6 +2423,36 @@ const shadeColor=(hex,dl)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.s
                 if(parent.window.__tauriSave) parent.window.__tauriSave(ec.toDataURL('image/png'), 'spritesheet.png', 'png');setShowExport(false);show('Spritesheet exported'); try{ parent.postMessage({type:'ADD_TO_HUB', dataURL: ec.toDataURL('image/png'), name: 'spritesheet_'+Date.now()}, '*'); }catch(e){}
               }} className="w-full text-xs px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-left" title="Export all frames as a spritesheet PNG">
                 Spritesheet PNG
+              </button>
+              <button onClick={()=>{
+                // Export animated GIF
+                if(typeof GIF==='undefined'){show('gif.js not loaded');return;}
+                const totalF=Math.max(...layers.map(l=>l.frames.length));
+                const gif=new GIF({workers:2,quality:10,width:w,height:h,workerScript:'../vendor/gif.js'});
+                for(let fi=0;fi<totalF;fi++){
+                  const ec=document.createElement('canvas');ec.width=w;ec.height=h;
+                  const ectx=ec.getContext('2d');ectx.imageSmoothingEnabled=false;
+                  for(const layer of layers){
+                    if(!layer.visible)continue;
+                    const f=layer.frames[fi]||layer.frames[layer.frames.length-1];
+                    if(f)ectx.drawImage(f.canvas,0,0);
+                  }
+                  gif.addFrame(ec,{delay:Math.round(1000/fps),copy:true});
+                }
+                show('Rendering GIF...');
+                gif.on('finished',blob=>{
+                  const reader=new FileReader();
+                  reader.onload=()=>{
+                    if(parent.window.__tauriSave) parent.window.__tauriSave(reader.result, 'animation.gif', 'gif');
+                    show('GIF exported ('+totalF+' frames)');
+                    try{parent.postMessage({type:'ADD_TO_HUB',dataURL:reader.result,name:'gif_'+Date.now()},'*');}catch(e){}
+                  };
+                  reader.readAsDataURL(blob);
+                });
+                gif.render();
+                setShowExport(false);
+              }} className="w-full text-xs px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-left" title="Export animation as animated GIF">
+                Animated GIF
               </button>
               <button onClick={()=>{
                 // Export current frame

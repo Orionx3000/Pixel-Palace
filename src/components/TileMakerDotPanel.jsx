@@ -27,12 +27,15 @@ export default function TileMakerDotPanel({ toast }) {
   
    const [gridData, setGridData] = useState([]); // Map of 'x,y' -> { id, layer: 'tiles|objects|npcs', z: number }
    const canvasRef = useRef(null);
+   const [selectedCell, setSelectedCell] = useState(null); // index into gridData for placed-tile editing
 
    // Sync tileSize back to PP.options so Options panel stays in sync
    useEffect(() => { if (window.PP && window.PP.options) window.PP.options.tileSize = tileSize; }, [tileSize]);
 
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [chunkStart, setChunkStart] = useState(null);
+   const [isDrawing, setIsDrawing] = useState(false);
+   const [chunkStart, setChunkStart] = useState(null);
+   const imgCacheRef = useRef({});
+   const [uiTick, setUiTick] = useState(0);
 
    const handleDrop = (e) => {
       e.preventDefault();
@@ -55,24 +58,24 @@ export default function TileMakerDotPanel({ toast }) {
         const y = Math.floor((e.clientY - rect.top) / (tileSize * zoom));
         return { x, y };
      }
-     // Inverse isometric projection: screen point -> grid (x,y).
-     // Tile diamond half-extents: hw = tileSize*zoom, hh = hw/2.
-     const hw = tileSize * zoom, hh = hw / 2;
-     // Center the field so (0,0) maps to the middle.
-     const px = (e.clientX - rect.left) - hw;          // shift so first diamond starts at origin
-     const py = (e.clientY - rect.top) - hh;
-     const gx = (px / hw + py / hh) / 2;
-     const gy = (py / hh - px / hw) / 2;
-     return { x: Math.floor(gx), y: Math.floor(gy) };
+      // Inverse isometric projection: screen point -> grid (x,y).
+      const hw = tileSize * zoom, hh = hw / 2;
+      const ox = (gridSize.h - 1) * hw;
+      const px = (e.clientX - rect.left) - ox;
+      const py = (e.clientY - rect.top);
+      const gx = (px / hw + py / hh) / 2;
+      const gy = (py / hh - px / hw) / 2;
+      return { x: Math.floor(gx), y: Math.floor(gy) };
   };
 
-  // Project a grid cell to its diamond top-center screen position (iso mode).
-  const isoPos = (cx, cy) => {
-     const hw = tileSize * zoom, hh = hw / 2;
-     const sx = (cx - cy) * hw + hw;       // shift so field is on-canvas
-     const sy = (cx + cy) * hh;
-     return { sx, sy, hw, hh };
-  };
+   // Project a grid cell to its diamond top-center screen position (iso mode).
+   const isoPos = (cx, cy) => {
+      const hw = tileSize * zoom, hh = hw / 2;
+      const ox = (gridSize.h - 1) * hw;  // offset so leftmost cell is on-canvas
+      const sx = (cx - cy) * hw + ox;
+      const sy = (cx + cy) * hh;
+      return { sx, sy, hw, hh };
+   };
 
   const handlePointerDown = (e) => {
      if (activeTool === 'chunk') { setChunkStart(getCell(e)); return; }
@@ -82,13 +85,43 @@ export default function TileMakerDotPanel({ toast }) {
         if (text) setNotes(prev => [...prev, { x: cell.x, y: cell.y, text, color: noteColors[noteColorIdx] }]);
         return;
      }
+     if (activeTool === 'select') {
+        const cell = getCell(e);
+        const idx = [...gridData].reverse().findIndex(it => it.x === cell.x && it.y === cell.y);
+        if (idx >= 0) {
+           const realIdx = gridData.length - 1 - idx;
+           setSelectedCell(realIdx);
+        } else {
+           setSelectedCell(null);
+        }
+        return;
+     }
+     if (activeTool === 'eraser') {
+        const cell = getCell(e);
+        setGridData(prev => prev.filter(it => !(it.x === cell.x && it.y === cell.y)));
+        setSelectedCell(null);
+        return;
+     }
      setIsDrawing(true);
      paintCell(getCell(e));
   };
 
+  const updatePlaced = (idx, updates) => {
+     setGridData(prev => prev.map((it, i) => i === idx ? { ...it, ...updates } : it));
+  };
+  const deletePlaced = (idx) => {
+     setGridData(prev => prev.filter((_, i) => i !== idx));
+     setSelectedCell(null);
+  };
+
   const handlePointerMove = (e) => {
      if (!isDrawing) return;
-     if (activeTool === 'chunk' || activeTool === 'note') return;
+     if (activeTool === 'chunk' || activeTool === 'note' || activeTool === 'select') return;
+     if (activeTool === 'eraser') {
+        const cell = getCell(e);
+        setGridData(prev => prev.filter(it => !(it.x === cell.x && it.y === cell.y)));
+        return;
+     }
      paintCell(getCell(e));
   };
 
@@ -129,41 +162,51 @@ export default function TileMakerDotPanel({ toast }) {
    };
 
    // ── Ingest a sent image (from the art hub "Send → Tilemap") into collectible tiles ──
-   const ingestImage = (dataURL) => {
+   const ingestImage = (dataURL, forceWhole) => {
       if (!dataURL) return;
       const img = new Image();
       img.onload = () => {
          setSourceImg(dataURL);
          const ts = tileSize;
          const newTiles = [];
-         if (!sliceAsGrid) {
+         // Smart detection: if forceWhole, or image is roughly tile-sized, add as single tile.
+         // If image dimensions are an exact multiple of tileSize and > 1 tile, slice it.
+         const wTiles = Math.round(img.width / ts);
+         const hTiles = Math.round(img.height / ts);
+         const isExactMultiple = (img.width % ts === 0) && (img.height % ts === 0) && (wTiles > 1 || hTiles > 1);
+         const addWhole = forceWhole || !isExactMultiple;
+         if (addWhole) {
             // Add as a single whole tile (resize to tile size)
             const oc = document.createElement('canvas'); oc.width = ts; oc.height = ts;
             const octx = oc.getContext('2d');
+            octx.imageSmoothingEnabled = false;
             octx.drawImage(img, 0, 0, ts, ts);
-            newTiles.push({ id: Date.now() + 1, name: 'sent_whole', src: oc.toDataURL('image/png') });
-            toast(`Added image as 1 whole tile (${img.width}×${img.height} → ${ts}px)`);
+            newTiles.push({ id: Date.now() + 1, name: img.width+'x'+img.height, src: oc.toDataURL('image/png') });
+            toast('Added as 1 tile ('+img.width+'x'+img.height+' → '+ts+'px)');
          } else {
-            // Slice into grid (original behavior)
-            const cols = Math.max(1, Math.floor(img.width / ts));
-            const rows = Math.max(1, Math.floor(img.height / ts));
+            // Slice into grid
+            const cols = wTiles, rows = hTiles;
             for (let ry = 0; ry < rows; ry++) for (let cx = 0; cx < cols; cx++) {
                const oc = document.createElement('canvas'); oc.width = ts; oc.height = ts;
                const octx = oc.getContext('2d');
+               octx.imageSmoothingEnabled = false;
                octx.drawImage(img, cx * ts, ry * ts, ts, ts, 0, 0, ts, ts);
-               newTiles.push({ id: Date.now() + newTiles.length + cx + ry * 100, name: `sent_${cx}_${ry}`, src: oc.toDataURL('image/png') });
+               newTiles.push({ id: Date.now() + newTiles.length + cx + ry * 100, name: 'tile_'+cx+'_'+ry, src: oc.toDataURL('image/png') });
             }
-            toast(`Collected ${newTiles.length} tiles from sent image (${cols}×${rows})`);
+            toast('Sliced into '+newTiles.length+' tiles ('+cols+'x'+rows+')');
          }
          setAssets(prev => {
             const maxId = Math.max(0, ...prev.tiles.map(a => a.id), ...prev.objects.map(a => a.id), ...prev.npcs.map(a => a.id));
             let nid = maxId + 1;
             const arr = [...prev[incomingLayer]];
-            newTiles.forEach(t => arr.push({ ...t, id: nid++ }));
+            const added = [];
+            newTiles.forEach(t => { const tile = { ...t, id: nid++ }; arr.push(tile); added.push(tile); });
+            // Auto-select the first imported tile so brush works immediately
+            if (added.length > 0) setSelectedIds([added[0].id]);
             return { ...prev, [incomingLayer]: arr };
          });
       };
-      img.onerror = () => toast('Failed to load sent image');
+      img.onerror = () => toast('Failed to load image');
       img.src = dataURL;
    };
 
@@ -292,13 +335,18 @@ export default function TileMakerDotPanel({ toast }) {
     };
      const importSpritesheet = async () => {
         try {
-           const p = await open({ multiple: false, filters: [{ name: 'PNG', extensions: ['png'] }] });
+           const p = await open({ multiple: true, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }] });
            if (!p) return;
-           const bytes = await readFile(p);
-           let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
-           ingestImage('data:image/png;base64,' + btoa(bin));
-           toast('Sliced spritesheet into tiles');
-        } catch (e) { toast('Spritesheet import failed: ' + e); }
+           const files = Array.isArray(p) ? p : [p];
+           for (const filePath of files) {
+              const bytes = await readFile(filePath);
+              let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+              const ext = filePath.split('.').pop().toLowerCase();
+              const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : ext === 'bmp' ? 'image/bmp' : 'image/png';
+              ingestImage(`data:${mime};base64,` + btoa(bin));
+           }
+           toast(`Imported ${files.length} image(s) as tiles`);
+        } catch (e) { toast('Image import failed: ' + e); }
      };
      const importTiledJson = async () => {
         try {
@@ -436,29 +484,60 @@ export default function TileMakerDotPanel({ toast }) {
       
        const newAssets = { tiles: [], objects: [], npcs: [] };
        let nextId = 1;
-       const scanFolder = async (folderName, type) => {
+       const scanFolder = async (folderPath, type) => {
           try {
-             const entries = await readDir(`${selected}/${folderName}`);
+             const entries = await readDir(folderPath);
              for (const entry of entries) {
-                if (entry.name.endsWith('.png') && !entry.name.includes('#hidden')) {
-                   const match = entry.name.match(/^(\d+)_/);
+                const name = entry.name || '';
+                if (name.endsWith('.png') && !name.includes('#hidden')) {
+                   const match = name.match(/^(\d+)[_\-]/);
                    const id = match ? parseInt(match[1]) : nextId++;
-                   const src = convertFileSrc(`${selected}/${folderName}/${entry.name}`);
-                   newAssets[type].push({ id, name: entry.name, src });
+                   const filePath = entry.path || `${folderPath}\\${name}`;
+                   try {
+                      const bytes = await readFile(filePath);
+                      let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+                      const src = 'data:image/png;base64,' + btoa(bin);
+                      newAssets[type].push({ id, name, src });
+                   } catch (e2) {
+                      const src = convertFileSrc(filePath);
+                      newAssets[type].push({ id, name, src });
+                   }
                    if (id >= nextId) nextId = id + 1;
                 }
              }
           } catch (e) {
-             console.warn(`Could not read ${folderName}: `, e);
+             console.warn(`Could not read ${folderPath}: `, e);
           }
        };
-      
-      await scanFolder('tiles', 'tiles');
-      await scanFolder('objects', 'objects');
-      await scanFolder('npcs', 'npcs');
-      
-      setAssets(newAssets);
-      toast(`Loaded assets from ${selected}`);
+       
+      const subFolders = ['tiles', 'objects', 'npcs'];
+      let foundSubFolders = false;
+      for (const name of subFolders) {
+         try {
+            const entries = await readDir(`${selected}\\${name}`);
+            const pngs = (entries || []).filter(e => (e.name || '').endsWith('.png'));
+            if (pngs.length > 0) { foundSubFolders = true; break; }
+         } catch {}
+      }
+
+      if (foundSubFolders) {
+         await scanFolder(`${selected}\\tiles`, 'tiles');
+         await scanFolder(`${selected}\\objects`, 'objects');
+         await scanFolder(`${selected}\\npcs`, 'npcs');
+      } else {
+         await scanFolder(selected, 'tiles');
+      }
+
+      setAssets(prev => {
+         const merged = { tiles: [...prev.tiles, ...newAssets.tiles], objects: [...prev.objects, ...newAssets.objects], npcs: [...prev.npcs, ...newAssets.npcs] };
+         return merged;
+      });
+      const total = newAssets.tiles.length + newAssets.objects.length + newAssets.npcs.length;
+      if (total > 0) {
+         const first = newAssets.tiles[0] || newAssets.objects[0] || newAssets.npcs[0];
+         if (first) setSelectedIds([first.id]);
+      }
+      toast(`Loaded ${total} asset(s) from ${selected}`);
     } catch (e) {
       toast("Error scanning assets: " + e);
     }
@@ -469,21 +548,21 @@ export default function TileMakerDotPanel({ toast }) {
     if (!cv) return;
     const ctx = cv.getContext('2d');
     const tw = tileSize * zoom;
-    // In iso mode the canvas needs room for the diamond spread (w+h) * half-height.
-    const cw = cv.width = isoMode ? (gridSize.w + gridSize.h + 1) * tw : gridSize.w * tw;
-    const ch = cv.height = isoMode ? (gridSize.w + gridSize.h + 1) * (tw / 2) + tw : gridSize.h * tw;
+    // In iso mode the canvas needs room for the full diamond field.
+    const cw = cv.width = isoMode ? (gridSize.w + gridSize.h) * tw : gridSize.w * tw;
+    const ch = cv.height = isoMode ? (gridSize.w + gridSize.h) * (tw / 2) + tw : gridSize.h * tw;
     
     ctx.clearRect(0, 0, cw, ch);
     
     if (!isoMode) {
        // Draw background grid lines
-       ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+       ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
        ctx.lineWidth = 1;
        for(let x=0; x<=gridSize.w; x++) { ctx.beginPath(); ctx.moveTo(x*tw, 0); ctx.lineTo(x*tw, ch); ctx.stroke(); }
        for(let y=0; y<=gridSize.h; y++) { ctx.beginPath(); ctx.moveTo(0, y*tw); ctx.lineTo(cw, y*tw); ctx.stroke(); }
     } else {
        // Iso grid guides (diamonds)
-       ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+       ctx.strokeStyle = theme === 'dark' ? 'rgba(100,180,255,0.30)' : 'rgba(0,80,200,0.25)';
        ctx.lineWidth = 1;
        for (let cy=0; cy<gridSize.h; cy++) for (let cx=0; cx<gridSize.w; cx++) {
           const { sx, sy, hw, hh } = isoPos(cx, cy);
@@ -495,25 +574,55 @@ export default function TileMakerDotPanel({ toast }) {
     
     // Sort items by Z (Layer simplicity)
     const sorted = [...gridData].sort((a,b) => a.z - b.z);
+    const cache = imgCacheRef.current;
     
+    const drawTile = (img, item) => {
+       const sc = item.scale || 1;
+       const flipX = item.flipH ? -1 : 1;
+       const flipY = item.flipV ? -1 : 1;
+       const rot = item.rot || 0;
+       if (!isoMode) {
+          const px = item.x * tw, py = item.y * tw;
+          const sw = tw * sc, sh = tw * sc;
+          const ox = px + (tw - sw) / 2, oy = py + (tw - sh) / 2;
+          ctx.save();
+          if (rot) { ctx.translate(px + tw/2, py + tw/2); ctx.rotate(rot * Math.PI / 180); ctx.translate(-(px + tw/2), -(py + tw/2)); }
+          if (flipX < 0 || flipY < 0) { ctx.translate(px + tw/2, py + tw/2); ctx.scale(flipX, flipY); ctx.translate(-(px + tw/2), -(py + tw/2)); }
+          ctx.drawImage(img, ox, oy, sw, sh);
+          ctx.restore();
+          if (selectedCell !== null && gridData[selectedCell] === item) {
+             ctx.strokeStyle = '#22c55e';
+             ctx.lineWidth = 2;
+             ctx.setLineDash([4, 3]);
+             ctx.strokeRect(px + 1, py + 1, tw - 2, tw - 2);
+             ctx.setLineDash([]);
+          }
+       } else {
+          const { sx, sy, hw, hh } = isoPos(item.x, item.y);
+          ctx.save();
+          if (rot) { ctx.translate(sx, sy + hh); ctx.rotate(rot * Math.PI / 180); ctx.translate(-sx, -(sy + hh)); }
+          ctx.translate(sx, sy + hh);
+          ctx.scale(flipX, 0.5 * flipY);
+          ctx.drawImage(img, -hw * sc, -hw * sc, hw * 2 * sc, hw * 2 * sc);
+          ctx.restore();
+       }
+    };
+
+    let needsRedraw = false;
+    const allAssets = [...assets.tiles, ...assets.objects, ...assets.npcs];
     sorted.forEach(item => {
-       const asset = [...assets.tiles, ...assets.objects, ...assets.npcs].find(a => a.id === item.id);
-       if (asset) {
+       const asset = allAssets.find(a => a.id === item.id);
+       if (!asset) return;
+       if (cache[asset.src]) {
+          if (cache[asset.src].complete) drawTile(cache[asset.src], item);
+          else needsRedraw = true;
+       } else {
           const img = new Image();
-          img.onload = () => {
-             if (!isoMode) {
-                ctx.drawImage(img, item.x * tw, item.y * tw, img.width * zoom, img.height * zoom);
-             } else {
-                // Draw the tile as the top face of a diamond (squash vertically by half).
-                const { sx, sy, hw, hh } = isoPos(item.x, item.y);
-                ctx.save();
-                ctx.translate(sx, sy + hh);            // diamond top-center
-                ctx.scale(1, 0.5);                     // iso squash
-                ctx.drawImage(img, -hw, -hw, hw*2, hw*2);
-                ctx.restore();
-             }
-          };
+          img.onload = () => { cache[asset.src] = img; setUiTick(t => t + 1); };
+          img.onerror = () => { cache[asset.src] = null; };
           img.src = asset.src;
+          cache[asset.src] = img;
+          needsRedraw = true;
        }
     });
      // Annotated notes layer
@@ -544,7 +653,7 @@ export default function TileMakerDotPanel({ toast }) {
       }
    };
    
-  useEffect(() => { drawGrid(); }, [gridData, zoom, theme, gridSize, assets, notes]);
+  useEffect(() => { drawGrid(); }, [gridData, zoom, theme, gridSize, assets, notes, isoMode, tileSize, uiTick, selectedCell]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: theme === 'dark' ? '#1e1e1e' : '#f5f5f5', color: theme === 'dark' ? '#fff' : '#000' }}>
@@ -557,6 +666,8 @@ export default function TileMakerDotPanel({ toast }) {
            <button onClick={() => setActiveTool('brush')} style={{ background: activeTool === 'brush' ? '#22c55e' : 'transparent', color: activeTool === 'brush' ? '#000' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>o Brush</button>
            <button onClick={() => setActiveTool('random')} style={{ background: activeTool === 'random' ? '#3b82f6' : 'transparent', color: activeTool === 'random' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>Y2 Random Scatter</button>
            <button onClick={() => setActiveTool('chunk')} style={{ background: activeTool === 'chunk' ? '#a855f7' : 'transparent', color: activeTool === 'chunk' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>Y Chunk Tool</button>
+           <button onClick={() => { setActiveTool('select'); setSelectedCell(null); }} style={{ background: activeTool === 'select' ? '#3b82f6' : 'transparent', color: activeTool === 'select' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }} title="Select placed tile to edit scale/flip/rotate">▢ Select</button>
+           <button onClick={() => setActiveTool('eraser')} style={{ background: activeTool === 'eraser' ? '#ef4444' : 'transparent', color: activeTool === 'eraser' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }} title="Erase placed tiles by clicking/dragging">⌫ Eraser</button>
            
         <div style={{ display: 'flex', gap: 15, background: theme === 'dark' ? '#111' : '#ddd', padding: 4, borderRadius: 6, alignItems: 'center' }}>
            <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center' }}>Grid W: <input type="number" value={gridSize.w} onChange={e=>setGridSize(prev=>({...prev, w: parseInt(e.target.value)||50}))} style={{width: 60, padding: '2px 4px', background: '#000', color: '#fff', border: '1px solid #444', textAlign: 'left'}} /></label>
@@ -608,7 +719,7 @@ export default function TileMakerDotPanel({ toast }) {
            
            <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                <button onClick={scanAssets} className="neon-btn vi" style={{ width: '100%' }}>" Scan Assets Folder (F4)</button>
-                <button onClick={importSpritesheet} className="neon-btn vi" style={{ width: '100%' }}>⊞ Slice Spritesheet (PNG)</button>
+                <button onClick={importSpritesheet} className="neon-btn vi" style={{ width: '100%' }}>⊞ Import Images as Tiles (PNG/JPG/...)</button>
                 <button onClick={importTiledJson} className="neon-btn" style={{ width: '100%' }}>↗ Import Tiled JSON/TMJ</button>
                 <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
                   Send&nbsp;→&nbsp;
@@ -643,13 +754,13 @@ export default function TileMakerDotPanel({ toast }) {
                     } else {
                        setSelectedIds([item.id]);
                     }
-                 }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', background: selectedIds.includes(item.id) ? '#22c55e' : (theme === 'dark' ? '#333' : '#fff'), color: selectedIds.includes(item.id) ? '#000' : (theme === 'dark' ? '#fff' : '#000'), borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
-                    <div style={{ width: 40, height: 40, background: '#111', border: '1px solid #555', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 4 }}>
-                       <img src={item.src} style={{ maxWidth: '100%', maxHeight: '100%', imageRendering: 'pixelated' }} />
+                 }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: selectedIds.includes(item.id) ? '#22c55e' : (theme === 'dark' ? '#333' : '#fff'), color: selectedIds.includes(item.id) ? '#000' : (theme === 'dark' ? '#fff' : '#000'), borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)', flexShrink: 0 }}>
+                    <div style={{ width: 48, height: 48, minWidth: 48, minHeight: 48, background: '#111', border: selectedIds.includes(item.id) ? '2px solid #16a34a' : '1px solid #555', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 4 }}>
+                       <img src={item.src} style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }} />
                     </div>
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                       <div style={{ fontWeight: 'bold', fontSize: 13 }}>ID: {item.id}</div>
-                       <div style={{ fontSize: 11, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                    <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
+                       <div style={{ fontWeight: 'bold', fontSize: 12 }}>ID: {item.id}</div>
+                       <div style={{ fontSize: 10, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
                     </div>
                  </div>
               ))}
@@ -662,8 +773,56 @@ export default function TileMakerDotPanel({ toast }) {
         </div>
         
         {/* MAIN CANVAS */}
-        <div style={{ flex: 1, background: theme === 'dark' ? '#111' : '#ccc', position: 'relative', overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ flex: 1, background: theme === 'dark' ? '#111' : '#ccc', position: 'relative', overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+             onWheel={e => { e.preventDefault(); setZoom(z => Math.max(0.25, Math.min(8, z * (e.deltaY < 0 ? 1.15 : 1/1.15)))); }}
+        >
            <canvas ref={canvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}  style={{ background: theme === 'dark' ? '#222' : '#fff', boxShadow: '0 0 30px rgba(0,0,0,0.5)', imageRendering: 'pixelated' }}></canvas>
+
+           <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(0,0,0,0.7)', borderRadius: 8, padding: '4px 8px', zIndex: 15 }}>
+              <button onClick={() => setZoom(z => Math.max(0.25, z / 1.25))} style={{ background: '#444', color: '#fff', border: 'none', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>−</button>
+              <span style={{ color: '#ccc', fontSize: 11, minWidth: 44, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+              <button onClick={() => setZoom(z => Math.min(8, z * 1.25))} style={{ background: '#444', color: '#fff', border: 'none', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>+</button>
+              <button onClick={() => setZoom(1)} style={{ background: '#555', color: '#ccc', border: 'none', fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+           </div>
+
+           {selectedCell !== null && gridData[selectedCell] && (
+              <div style={{ position: 'absolute', top: 12, right: 12, background: theme === 'dark' ? '#1a1a1a' : '#f0f0f0', border: '1px solid #444', borderRadius: 10, padding: 14, minWidth: 220, boxShadow: '0 4px 20px rgba(0,0,0,.5)', zIndex: 20, fontSize: 12 }}>
+                 <div style={{ fontWeight: 'bold', marginBottom: 8, color: '#22c55e', fontSize: 13 }}>Placed Tile Properties</div>
+                 <div style={{ marginBottom: 6, color: '#aaa' }}>ID: {gridData[selectedCell].id} &middot; ({gridData[selectedCell].x}, {gridData[selectedCell].y})</div>
+                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{ width: 50, color: '#aaa' }}>Scale</span>
+                    <input type="range" min={0.25} max={4} step={0.05} value={gridData[selectedCell].scale || 1}
+                       onChange={e => updatePlaced(selectedCell, { scale: parseFloat(e.target.value) })}
+                       style={{ flex: 1 }} />
+                    <span style={{ width: 36, textAlign: 'right' }}>{(gridData[selectedCell].scale || 1).toFixed(2)}x</span>
+                 </label>
+                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{ width: 50, color: '#aaa' }}>Rotate</span>
+                    <input type="range" min={-180} max={180} step={1} value={gridData[selectedCell].rot || 0}
+                       onChange={e => updatePlaced(selectedCell, { rot: parseFloat(e.target.value) })}
+                       style={{ flex: 1 }} />
+                    <span style={{ width: 36, textAlign: 'right' }}>{gridData[selectedCell].rot || 0}°</span>
+                 </label>
+                 <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                    <button onClick={() => updatePlaced(selectedCell, { flipH: !gridData[selectedCell].flipH })}
+                       style={{ flex: 1, padding: '4px 0', background: gridData[selectedCell].flipH ? '#3b82f6' : '#333', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>⇄ Flip H</button>
+                    <button onClick={() => updatePlaced(selectedCell, { flipV: !gridData[selectedCell].flipV })}
+                       style={{ flex: 1, padding: '4px 0', background: gridData[selectedCell].flipV ? '#3b82f6' : '#333', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>⇅ Flip V</button>
+                 </div>
+                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <span style={{ width: 50, color: '#aaa' }}>Z-Index</span>
+                    <input type="number" value={gridData[selectedCell].z || 0}
+                       onChange={e => updatePlaced(selectedCell, { z: parseInt(e.target.value) || 0 })}
+                       style={{ width: 70, padding: '3px 6px', background: '#000', color: '#fff', border: '1px solid #444', borderRadius: 4 }} />
+                 </label>
+                 <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => deletePlaced(selectedCell)}
+                       style={{ flex: 1, padding: '5px 0', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>🗑 Delete</button>
+                    <button onClick={() => setSelectedCell(null)}
+                       style={{ flex: 1, padding: '5px 0', background: '#555', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Close</button>
+                 </div>
+              </div>
+           )}
         </div>
         
       </div>

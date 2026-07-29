@@ -164,7 +164,7 @@ function HubPanel({toast, setActive, projects={}, fmtTime=()=>'', onOpenProject,
   
   const receive=()=>{ const k=Object.keys(PP.inbox); if(!k.length){toast('Nothing sent.');return;} k.forEach(t=>{ if(PP.inbox[t]){ PP.assets.unshift({id:Date.now()+'_'+Math.random().toString(36).slice(2,7),name:'from_'+t,dataURL:PP.inbox[t], folder:'Main'}); } }); refresh(); toast('Received '+k.length+' sent image(s)'); };
   
-  const sendTo=(asset,target)=>{ try { PP.notifyInbox(target, asset.dataURL); if(target==='editor') setActive('editor'); if(target==='studio') setActive('studio'); if(target==='extract') setActive('extract'); if(target==='tilemap') setActive('tilemap'); if(target==='collision') setActive('collision'); if(target==='markup') setActive('markup'); if(target==='editor' || target==='studio' || target==='extract'){ document.querySelectorAll('.tool-iframe').forEach(iframe => { if(iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'LOAD_CANVAS', data: { [target]: asset.dataURL } }, '*'); }); } toast('Sent "'+asset.name+'" to '+target); } catch(err) { toast('Error sending: ' + err.message); } };
+  const sendTo=(asset,target)=>{ try { PP.notifyInbox(target, asset.dataURL); if(target==='editor') setActive('editor'); if(target==='studio') setActive('studio'); if(target==='extract') setActive('extract'); if(target==='tilemap') setActive('tilemap'); if(target==='collision') setActive('collision'); if(target==='markup') setActive('markup'); if(target==='pixscii') setActive('pixscii'); if(target==='editor' || target==='studio' || target==='extract' || target==='pixscii'){ document.querySelectorAll('.tool-iframe').forEach(iframe => { if(iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'LOAD_CANVAS', data: { [target]: asset.dataURL } }, '*'); }); } toast('Sent "'+asset.name+'" to '+target); } catch(err) { toast('Error sending: ' + err.message); } };
   
   const del=(id)=>{ PP.assets=PP.assets.filter(a=>a.id!==id); refresh(); };
   
@@ -243,6 +243,7 @@ function HubPanel({toast, setActive, projects={}, fmtTime=()=>'', onOpenProject,
               <button className="neon-btn cy" style={{padding:'2px 4px', fontSize:10}} onClick={()=>sendTo(a,'editor')} title="Edit Layer">Edit</button>
               <button className="neon-btn mg" style={{padding:'2px 4px', fontSize:10}} onClick={()=>sendTo(a,'studio')} title="Edit Animation">Anim</button>
               <button className="neon-btn" style={{padding:'2px 4px', fontSize:10}} onClick={()=>sendTo(a,'tilemap')} title="Send to Map">Map</button>
+              <button className="neon-btn" style={{padding:'2px 4px', fontSize:10, borderColor:'#f59e0b'}} onClick={()=>sendTo(a,'pixscii')} title="Send to Pixscii for processing">✦ Pix</button>
               <button className="neon-btn" style={{padding:'2px 4px', fontSize:10}} onClick={()=>moveToFolder(a.id)} title="Move Folder">📁</button>
             </div>
             
@@ -445,36 +446,76 @@ function MarkersPanel(toast){
 
 /* =================== BUILD =================== */
 function buildTscn(data){
-  let s='[gd_scene format=3]\n\n';
-  s+='[node name="Background" type="Sprite2D"]\ntexture = ExtResource("bg_1")\n\n';
+  let s='[gd_scene format=3 uid="uid://'+Math.floor(Math.random()*1e9)+'"]\n\n';
+  // External resources: background + tile textures
+  s+='[ext_resource path="res://background.png" type="Texture2D" id="bg_1"]\n';
+  const tileResIds={};
+  let resIdx=2;
+  if(data.tilemap&&data.tilemap.tiles){
+    Object.keys(data.tilemap.tiles).forEach(id=>{
+      const tid='tile_'+id;
+      tileResIds[id]=tid;
+      s+=`[ext_resource path="res://tiles/tile_${id}.png" type="Texture2D" id="${tid}"]\n`;
+    });
+  }
+  s+='\n[node name="Level" type="Node2D"]\n\n';
+  s+='[node name="Background" type="Sprite2D" parent="."]\ntexture = ExtResource("bg_1")\n\n';
+  // Tilemap as tile instances
+  if(data.tilemap&&data.tilemap.grid){
+    const {cols,rows,grid,tileSize}=data.tilemap;
+    const ts=tileSize||16;
+    s+='[node name="TileMap" type="Node2D" parent="."]\n\n';
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+      const id=grid[y]&&grid[y][x];
+      if(id==null||id<0||!tileResIds[id]) continue;
+      s+=`[node name="Tile_${x}_${y}" type="Sprite2D" parent="TileMap"]\nposition = Vector2(${x*ts+ts/2}, ${y*ts+ts/2})\ntexture = ExtResource("${tileResIds[id]}")\n\n`;
+    }
+  }
+  // Collisions
   (data.collisions||[]).forEach((sh,i)=>{
     const bodyType=sh.type==='killzone'?'Area2D':(sh.type==='oneway'?'AnimatableBody2D':'StaticBody2D');
     const nodeName=sh.type==='killzone'?'KillZone':(sh.type==='oneway'?'OneWayPlatform':(sh.type.charAt(0).toUpperCase()+sh.type.slice(1)));
     s+=`[node name="${nodeName}${i}" type="${bodyType}" parent="."]\n`;
     if(sh.type==='oneway')s+='platform_floor_layers = 1\n';
-    if(sh.type==='killzone'){s+='[node name="KillShape" type="CollisionShape2D" parent="."]\nshape = SubResource("KillRect_'+i+'")\n\n';}
-    else{s+='[node name="CollisionPolygon" type="CollisionPolygon2D" parent="."]\npolygon = PackedVector2Array('+sh.points.map(p=>`Vector2(${(p.x*1024).toFixed(1)}, ${(p.y*576).toFixed(1)})`).join(', ')+')\n\n';}
+    if(sh.type==='killzone'){
+      const cx=sh.points.reduce((a,p)=>a+p.x,0)/sh.points.length;
+      const cy=sh.points.reduce((a,p)=>a+p.y,0)/sh.points.length;
+      const minX=Math.min(...sh.points.map(p=>p.x)),maxX=Math.max(...sh.points.map(p=>p.x));
+      const minY=Math.min(...sh.points.map(p=>p.y)),maxY=Math.max(...sh.points.map(p=>p.y));
+      s+=`[sub_resource type="RectangleShape2D" id="KillRect_${i}"]\nsize = Vector2(${((maxX-minX)*1024).toFixed(1)}, ${((maxY-minY)*576).toFixed(1)})\n\n`;
+      s+=`[node name="KillShape" type="CollisionShape2D" parent="${nodeName}${i}"]\nposition = Vector2(${(cx*1024).toFixed(1)}, ${(cy*576).toFixed(1)})\nshape = SubResource("KillRect_${i}")\n\n`;
+    } else {
+      const pts=sh.points.map(p=>`Vector2(${(p.x*1024).toFixed(1)}, ${(p.y*576).toFixed(1)})`).join(', ');
+      s+=`[node name="CollisionPolygon" type="CollisionPolygon2D" parent="${nodeName}${i}"]\npolygon = PackedVector2Array(${pts})\n\n`;
+    }
   });
-  (data.markers||[]).forEach((mk,i)=>{ s+=`[node name="${MARKER_DEFS[mk.type].name.replace(/\s/g,'')}${i}" type="Marker2D" parent="."]\nposition = Vector2(${(mk.x*1024).toFixed(1)}, ${(mk.y*576).toFixed(1)})\nmetadata = {"marker_type":"'+mk.type+'}\n\n`; });
+  // Markers
+  (data.markers||[]).forEach((mk,i)=>{
+    const def=MARKER_DEFS[mk.type]||{name:mk.type||'Marker',color:'#ffffff'};
+    s+=`[node name="${(def.name||'Marker').replace(/\s/g,'')}${i}" type="Marker2D" parent="."]\nposition = Vector2(${(mk.x*1024).toFixed(1)}, ${(mk.y*576).toFixed(1)})\nmetadata = {"marker_type":"${mk.type}","label":"${def.name||mk.type}"}\n\n`;
+  });
+  // Markup paths
   (data.markup||[]).forEach((mk,i)=>{
-    const mkType=mk.type||'path'; const mkColor=mk.color||'#10b981';
+    const mkType=mk.type||'path';
+    const mkColor=mk.color||'#10b981';
+    const r=parseInt(mkColor.slice(1,3),16)/255, g=parseInt(mkColor.slice(3,5),16)/255, b=parseInt(mkColor.slice(5,7),16)/255;
     (mk.paths||[]).forEach((p,pi)=>{
-      if(!p||p.length<2)return;
+      if(!p||p.length<2) return;
       const pts=p.map(pt=>`Vector2(${(pt.x*1024).toFixed(1)}, ${(pt.y*576).toFixed(1)})`).join(', ');
-      s+=`[node name="Markup_${mkType}${i}_${pi}" type="Line2D" parent="."]\npoints = PackedVector2Array(${pts})\nwidth = 2.0\ncolor = Color(${parseInt(mkColor.slice(1,3),16)/255}, ${parseInt(mkColor.slice(3,5),16)/255}, ${parseInt(mkColor.slice(5,7),16)/255}, 0.9)\nmetadata = {"markup_type":"${mkType}"}\n\n`;
+      s+=`[node name="Markup_${mkType}${i}_${pi}" type="Line2D" parent="."]\npoints = PackedVector2Array(${pts})\nwidth = 2.0\ncolor = Color(${r.toFixed(3)}, ${g.toFixed(3)}, ${b.toFixed(3)}, 0.9)\nmetadata = {"markup_type":"${mkType}"}\n\n`;
     });
   });
-  if(data.tilemap){ s+='[node name="TileMap" type="TileMap" parent="."]\n'; }
   return s;
 }
 
 /* =================== OPENSTARBOUND EXPORT =================== */
-import { buildOpenStarboundFiles, buildZip, downloadBlob } from './openstarbound_export.js';
+import { buildOpenStarboundFiles, buildOpenStarboundLevelFiles, buildZip, downloadBlob } from './openstarbound_export.js';
 
 // Export the current tilemap as a self-contained OpenStarbound mod .zip.
 async function exportOpenStarboundMod(name, toast){
   if(!PP.tilemap||!PP.tilemap.grid||!PP.tilemap.grid.length){ toast('Build a tilemap first (Tilemap tab).'); return null; }
-  const { files, count, cols, rows } = await buildOpenStarboundFiles(name, PP.tilemap);
+  const level={collisions:PP.collisions, markup:PP.markup, entities:PP.markers.map(m=>({type:m.type,x:m.x,y:m.y,fromMarker:true}))};
+  const { files, count, cols, rows } = await buildOpenStarboundLevelFiles(name, PP.tilemap, level);
   if(!count){ toast('Tilemap has no placed tiles.'); return null; }
   const zip=buildZip(files);
   downloadBlob((name||'pixelpalace')+'_openstarbound.zip', zip, 'application/zip');
@@ -1073,8 +1114,27 @@ function App(){
          document.querySelectorAll('.tool-iframe').forEach(iframe=>{ if(iframe.contentWindow) iframe.contentWindow.postMessage({type:'LOAD_CANVAS',data:d.data},'*'); });
          if(keys.length){ const k=keys[0]; const map={editor:'editor',studio:'studio',animator:'animator'}; if(map[k]) setActive(map[k]); toast('Sent to '+(map[k]||k)); }
        }
-      if(d.type==='DOC_UPDATE'){ setDoc(prev=>({...prev,...(d.patch||{})})); }
-      if(d.type==='UPDATE_CANVAS'){ PP.workingCanvas[d.from] = d.data; }
+        if(d.type==='DOC_UPDATE'){ setDoc(prev=>({...prev,...(d.patch||{})})); }
+        if(d.type==='UPDATE_CANVAS'){ PP.workingCanvas[d.from] = d.data; }
+        if(d.type==='REQUEST_IMAGE'){
+          const src=d.data&&d.data.source;
+          const map={editor:'editor',studio:'studio'};
+          const targetKey=map[src]||src;
+          document.querySelectorAll('.tool-iframe').forEach(iframe=>{
+            if(iframe.contentWindow) iframe.contentWindow.postMessage({type:'CANVAS_REQUEST',data:{requestId:'pixscii_import',target:targetKey}},'*');
+          });
+          // Also try to pull from the active canvas directly
+          setTimeout(()=>{
+            const srcKey=d.data&&d.data.source;
+            const url=PP.workingCanvas&&PP.workingCanvas[srcKey];
+            if(url) document.querySelectorAll('.tool-iframe').forEach(f=>{ if(f.contentWindow) f.contentWindow.postMessage({type:'LOAD_CANVAS',data:{pixscii:url}},'*'); });
+          },300);
+        }
+        if(d.type==='SAVE_TO_ART_HUB'){
+          const name=d.data&&d.data.name;
+          const image=d.data&&d.data.image;
+          if(image){ PP.assets.unshift({id:Date.now()+'_'+Math.random().toString(36).slice(2,7), name:name||('pixscii_'+Date.now()), dataURL:image, folder:'Main'}); if(window.__ppRefreshHub) window.__ppRefreshHub(); toast('Saved to Art Hub: '+(name||'Pixscii export')); }
+        }
        if(d.type==='ADD_TO_HUB'){
            PP.assets.unshift({
               id: Date.now() + '_' + Math.random().toString(36).slice(2,7),
@@ -1111,6 +1171,32 @@ function App(){
               // send the result back to every iframe tool (they pick what they need)
               document.querySelectorAll('.tool-iframe').forEach(f=>{ if(f.contentWindow) f.contentWindow.postMessage({type:'AI_RESULT', data:{image:url, prompt:d.prompt, mode:d.mode}}, '*'); });
               toast('AI generated ('+w+'×'+h+')');
+            }catch(err){
+              toast('AI sidecar unavailable: '+err.message);
+            }
+          })();
+        }
+        if(d.type==='GENERATE_AI_IMG2IMG'){
+          (async ()=>{
+            try{
+              const AI_PORT = (window.PP_AI_PORT || 18755);
+              const body = JSON.stringify({
+                image: d.image || '',
+                prompt: d.prompt || 'pixel art',
+                strength: d.strength || 0.4,
+                model: d.model || '2dpixel',
+                palette: d.palette || 'none',
+                steps: d.steps || 20,
+                cfg: d.cfg || 7.0,
+                sampler: d.sampler || 'euler_a',
+                seed: d.seed || Math.floor(Math.random()*1e6)
+              });
+              const res = await fetch('http://127.0.0.1:'+AI_PORT+'/img2img', {method:'POST', headers:{'Content-Type':'application/json'}, body});
+              if(!res.ok) throw new Error('sidecar '+res.status);
+              const blob = await res.blob();
+              const url = await new Promise((ok,err)=>{ const r=new FileReader(); r.onload=()=>ok(r.result); r.onerror=err; r.readAsDataURL(blob); });
+              document.querySelectorAll('.tool-iframe').forEach(f=>{ if(f.contentWindow) f.contentWindow.postMessage({type:'AI_RESULT', data:{image:url, prompt:d.prompt, mode:'img2img'}}, '*'); });
+              toast('AI img2img done');
             }catch(err){
               toast('AI sidecar unavailable: '+err.message);
             }

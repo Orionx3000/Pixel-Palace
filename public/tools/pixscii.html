@@ -77,6 +77,15 @@
       </div>
     </div>
 
+    <div class="ctrl"><label>Symmetry</label>
+      <div class="seg" id="symSeg">
+        <button class="btn on" data-sym="h" title="Horizontal mirror">H-Mirror</button>
+        <button class="btn" data-sym="v" title="Vertical mirror">V-Mirror</button>
+        <button class="btn" data-sym="both" title="Both axes">Both</button>
+        <button class="btn" data-sym="none" title="No symmetry">None</button>
+      </div>
+    </div>
+
     <div class="ctrl"><label>Palette preset</label>
       <select id="palPreset">
         <option value="hero">Hero (blue/red)</option>
@@ -128,6 +137,26 @@
           <label class="btn on" id="outlineBtn" style="font-size:11px">Outline: ON</label>
           <label class="btn on" id="rampBtn" style="font-size:11px">Cel ramp: ON</label>
         </div>
+      </div>
+    </div>
+
+    <div class="collap" id="colEnhance">
+      <div class="ch" onclick="this.parentNode.classList.toggle('open')"><span>Enhance (post-process)</span><span>&#9662;</span></div>
+      <div class="cb">
+        <div class="ctrl"><label>Brightness <span class="mono" id="brtVal">0</span></label>
+          <input type="range" id="brt" min="-100" max="100" step="5" value="0"/></div>
+        <div class="ctrl"><label>Contrast <span class="mono" id="conVal">0</span></label>
+          <input type="range" id="con" min="-100" max="100" step="5" value="0"/></div>
+        <div class="ctrl"><label>Sharpness <span class="mono" id="shpVal">0</span></label>
+          <input type="range" id="shp" min="0" max="100" step="5" value="0"/></div>
+        <div class="ctrl"><label>Pixel density <span class="mono" id="denVal">100</span>%</label>
+          <input type="range" id="den" min="10" max="100" step="5" value="100"/></div>
+        <div class="row" style="margin:4px 0">
+          <label class="btn" id="edgeBtn" style="font-size:11px">Edge enhance: OFF</label>
+          <label class="btn" id="posterizeBtn" style="font-size:11px">Posterize: OFF</label>
+        </div>
+        <button class="btn" id="applyEnhance" title="Re-process imported image with these enhance settings" style="margin-top:6px">&#9881; Re-process imported</button>
+        <div class="hint mono" style="margin-top:4px">Import an image, tweak these, then click Re-process to apply effects.</div>
       </div>
     </div>
 
@@ -190,12 +219,17 @@
       <button class="btn on" id="gen" title="Generate sprite with current settings">&#9881; Generate</button>
       <button class="btn" id="regen" title="Re-generate with new random seed">&#8635; Re-roll</button>
       <button class="btn warn" id="genAI" title="Uses the local AI sidecar if running">&#10024; Generate (AI)</button>
+    </div>
+    <div class="row">
       <label class="btn" id="importBtn" style="cursor:pointer" title="Import an image file">&#128193; Import<input type="file" accept="image/*" id="importFile" style="display:none"/></label>
+      <button class="btn snd" id="fromEditor" title="Pull image from Editor canvas">&#9656; From Editor</button>
+      <button class="btn snd" id="fromStudio" title="Pull image from Studio canvas">&#9656; From Studio</button>
     </div>
     <div class="row">
       <button class="btn snd" id="sendEditor" title="Send sprite sheet to Editor">&#9656; Editor</button>
       <button class="btn snd" id="sendStudio" title="Send sprite sheet to Studio">&#9656; Studio</button>
       <button class="btn snd" id="sendAnimator" title="Send sprite sheet to Animator">&#9656; Animator</button>
+      <button class="btn" id="saveArtHub" title="Save sprite to Art Hub">&#128190; Save to Art Hub</button>
     </div>
     <div class="row">
       <button class="btn" id="dlPng" title="Download sprite sheet as PNG">&#8595; Sheet PNG</button>
@@ -251,8 +285,10 @@ const PRESETS = {
 let S = {
   gen:'character', seed:12345, size:24, sym:'h', det:0.4, parts:3, shade:3,
   outline:true, ramp:true, pal:PRESETS.hero.slice(), frames:4, anim:'idle',
-  skinTone:false, preset:'hero'
+  skinTone:false, preset:'hero',
+  brt:0, con:0, shp:0, den:100, edge:false, posterize:false
 };
+let importedImage = null;
 const $ = id => document.getElementById(id);
 const prev=$('prev'), sheet=$('sheet'), frame=$('frame');
 const pctx=prev.getContext('2d'), sctx=sheet.getContext('2d'), fctx=frame.getContext('2d');
@@ -273,6 +309,82 @@ function rampFrom(base, steps){
   return out; // index 0 = darkest
 }
 function pick(pal,i){ return pal[((i%pal.length)+pal.length)%pal.length]; }
+
+// ---- enhancement / post-process ----
+function enhanceCanvas(srcCanvas, opts){
+  const w=srcCanvas.width, h=srcCanvas.height;
+  const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
+  const ctx=tmp.getContext('2d');
+  ctx.drawImage(srcCanvas,0,0);
+  const id=ctx.getImageData(0,0,w,h);
+  const d=id.data;
+  const brt=(opts.brt||0)/100, con=(opts.con||0)/100, shp=(opts.shp||0)/100;
+  // brightness + contrast
+  const cf=259*(con*255+255)/(255*(259-con*255));
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i],g=d[i+1],b=d[i+2];
+    r=cf*(r-128)+128+brt*128; g=cf*(g-128)+128+brt*128; b=cf*(b-128)+128+brt*128;
+    d[i]=Math.max(0,Math.min(255,r)); d[i+1]=Math.max(0,Math.min(255,g)); d[i+2]=Math.max(0,Math.min(255,b));
+  }
+  // sharpen (unsharp mask)
+  if(shp>0){
+    const src=new Uint8ClampedArray(d);
+    for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
+      const i=(y*w+x)*4;
+      for(let c=0;c<3;c++){
+        const center=src[i+c]*5;
+        const neighbors=src[((y-1)*w+x)*4+c]+src[((y+1)*w+x)*4+c]+src[(y*w+x-1)*4+c]+src[(y*w+x+1)*4+c];
+        d[i+c]=Math.max(0,Math.min(255,src[i+c]+(center-neighbors)*shp));
+      }
+    }
+  }
+  // pixel density (sparseness — randomly zero out pixels based on density)
+  if(opts.den<100){
+    const drop=(100-opts.den)/100;
+    for(let i=0;i<d.length;i+=4){ if(d[i+3]>0 && Math.random()<drop) d[i+3]=0; }
+  }
+  // edge enhance (sobel outline overlay)
+  if(opts.edge){
+    const src=new Uint8ClampedArray(d);
+    for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
+      const i=(y*w+x)*4;
+      for(let c=0;c<3;c++){
+        const gx=-src[((y-1)*w+x-1)*4+c]-2*src[(y*w+x-1)*4+c]-src[((y+1)*w+x-1)*4+c]
+                  +src[((y-1)*w+x+1)*4+c]+2*src[(y*w+x+1)*4+c]+src[((y+1)*w+x+1)*4+c];
+        const gy=-src[((y-1)*w+x-1)*4+c]-2*src[((y-1)*w+x)*4+c]-src[((y-1)*w+x+1)*4+c]
+                  +src[((y+1)*w+x-1)*4+c]+2*src[((y+1)*w+x)*4+c]+src[((y+1)*w+x+1)*4+c];
+        const mag=Math.min(255,Math.sqrt(gx*gx+gy*gy));
+        d[i+c]=Math.max(0,Math.min(255,d[i+c]+mag*0.5));
+      }
+    }
+  }
+  // posterize (reduce to palette steps)
+  if(opts.posterize){
+    const steps=6;
+    for(let i=0;i<d.length;i+=4){ d[i]=Math.round(d[i]/(256/steps))*(256/steps); d[i+1]=Math.round(d[i+1]/(256/steps))*(256/steps); d[i+2]=Math.round(d[i+2]/(256/steps))*(256/steps); }
+  }
+  ctx.putImageData(id,0,0);
+  return tmp;
+}
+function applyEnhanceToImported(){
+  if(!importedImage) return;
+  const src=document.createElement('canvas'); src.width=importedImage.width; src.height=importedImage.height;
+  const sctx2=src.getContext('2d'); sctx2.imageSmoothingEnabled=false;
+  sctx2.drawImage(importedImage,0,0);
+  const enhanced=enhanceCanvas(src,S);
+  const n=Math.max(enhanced.width,enhanced.height);
+  prev.width=n; prev.height=n; pctx.imageSmoothingEnabled=false;
+  pctx.clearRect(0,0,n,n); pctx.drawImage(enhanced,0,0);
+  frame.width=n; frame.height=n; fctx.imageSmoothingEnabled=false;
+  fctx.clearRect(0,0,n,n); fctx.drawImage(enhanced,0,0);
+  sheet.width=n*S.frames; sheet.height=n; sctx.imageSmoothingEnabled=false;
+  sctx.clearRect(0,0,sheet.width,n);
+  for(let i=0;i<S.frames;i++) sctx.drawImage(enhanced,i*n,0);
+  lastSheet=sheet.toDataURL('image/png');
+  lastFrames=[]; curFrame=0;
+  $('frameInfo').textContent='frame 1/'+S.frames+' · enhanced '+n+'px';
+  $('status').textContent='Enhanced imported image (brt='+S.brt+' con='+S.con+' shp='+S.shp+').';
+}
 
 // ---- grid helpers ----
 function newGrid(size){ return Array.from({length:size},()=>Array(size).fill(null)); }
@@ -559,6 +671,12 @@ $('randPal').onclick=()=>{ const keys=Object.keys(PRESETS); S.preset=keys[Math.f
 $('skinTone').onclick=()=>{ S.skinTone=!S.skinTone; $('skinTone').classList.toggle('on',S.skinTone); generate(); };
 $('outlineBtn').onclick=()=>{ S.outline=!S.outline; $('outlineBtn').textContent='Outline: '+(S.outline?'ON':'OFF'); $('outlineBtn').classList.toggle('on',S.outline); generate(); };
 $('rampBtn').onclick=()=>{ S.ramp=!S.ramp; $('rampBtn').textContent='Cel ramp: '+(S.ramp?'ON':'OFF'); $('rampBtn').classList.toggle('on',S.ramp); generate(); };
+$('edgeBtn').onclick=()=>{ S.edge=!S.edge; $('edgeBtn').textContent='Edge enhance: '+(S.edge?'ON':'OFF'); $('edgeBtn').classList.toggle('on',S.edge); };
+$('posterizeBtn').onclick=()=>{ S.posterize=!S.posterize; $('posterizeBtn').textContent='Posterize: '+(S.posterize?'ON':'OFF'); $('posterizeBtn').classList.toggle('on',S.posterize); };
+$('brt').oninput=()=>{ S.brt=+$('brt').value; $('brtVal').textContent=S.brt; };
+$('con').oninput=()=>{ S.con=+$('con').value; $('conVal').textContent=S.con; };
+$('shp').oninput=()=>{ S.shp=+$('shp').value; $('shpVal').textContent=S.shp; };
+$('den').oninput=()=>{ S.den=+$('den').value; $('denVal').textContent=S.den; };
 $('aiSteps').oninput=()=>{ $('aiStepsVal').textContent=$('aiSteps').value; };
 $('swEdit').oninput=()=>{ S.pal[activeSw]=$('swEdit').value; renderPal(); generate(); };
 $('gen').onclick=generate;
@@ -584,6 +702,7 @@ $('sendStudio').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LO
 $('sendAnimator').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{animator:lastSheet}},'*'); $('status').textContent='Sent sheet to Animator.'; };
 $('importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{
   const im=new Image(); im.onload=()=>{
+    importedImage=im;
     const n=Math.max(im.width,im.height);
     prev.width=n; prev.height=n; pctx.imageSmoothingEnabled=false;
     pctx.clearRect(0,0,n,n); pctx.drawImage(im,0,0);
@@ -595,9 +714,42 @@ $('importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return; const r
     lastSheet=sheet.toDataURL('image/png');
     lastFrames=[]; curFrame=0;
     $('frameInfo').textContent='frame 1/'+S.frames+' · '+n+'px native';
-    $('status').textContent='Imported '+f.name+' ('+im.width+'×'+im.height+'px).';
+    $('status').textContent='Imported '+f.name+' ('+im.width+'×'+im.height+'px). Tweak Enhance controls, then Re-process.';
   }; im.src=r.result;
 }; r.readAsDataURL(f); e.target.value=''; };
+
+function loadImageToPixscii(imgSrc, label){
+  const im=new Image(); im.onload=()=>{
+    importedImage=im;
+    const n=Math.max(im.width,im.height);
+    prev.width=n; prev.height=n; pctx.imageSmoothingEnabled=false;
+    pctx.clearRect(0,0,n,n); pctx.drawImage(im,0,0);
+    frame.width=n; frame.height=n; fctx.imageSmoothingEnabled=false;
+    fctx.clearRect(0,0,n,n); fctx.drawImage(im,0,0);
+    sheet.width=n*S.frames; sheet.height=n; sctx.imageSmoothingEnabled=false;
+    sctx.clearRect(0,0,sheet.width,n);
+    for(let i=0;i<S.frames;i++) sctx.drawImage(im,i*n,0);
+    lastSheet=sheet.toDataURL('image/png');
+    lastFrames=[]; curFrame=0;
+    $('frameInfo').textContent='frame 1/'+S.frames+' · '+n+'px native';
+    $('status').textContent='Loaded '+label+' ('+im.width+'×'+im.height+'px). Tweak Enhance controls, then Re-process.';
+  }; im.src=imgSrc;
+}
+
+$('fromEditor').onclick=()=>{ parent.postMessage({type:'REQUEST_IMAGE',data:{source:'editor'}},'*'); $('status').textContent='Requesting image from Editor…'; };
+$('fromStudio').onclick=()=>{ parent.postMessage({type:'REQUEST_IMAGE',data:{source:'studio'}},'*'); $('status').textContent='Requesting image from Studio…'; };
+
+window.addEventListener('message', (ev)=>{
+  const d=ev.data; if(!d) return;
+  if(d.type==='LOAD_CANVAS' && d.data){
+    if(d.data.pixscii) loadImageToPixscii(d.data.pixscii, 'Pixscii import');
+    else if(d.data.editor) loadImageToPixscii(d.data.editor, 'Editor canvas');
+    else if(d.data.studio) loadImageToPixscii(d.data.studio, 'Studio canvas');
+  }
+});
+
+$('applyEnhance').onclick=()=>applyEnhanceToImported();
+$('saveArtHub').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'SAVE_TO_ART_HUB',data:{name:'pixscii_'+S.gen+'_'+S.seed,image:lastSheet}},'*'); $('status').textContent='Saved to Art Hub.'; };
 
 renderPal(); generate();
 </script>

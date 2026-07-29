@@ -302,7 +302,9 @@ export default function GamePanel({ toast }) {
     try {
       setLog('Building level for ' + engine + '...');
       const merged = mergeMarkersInto(meta.level || {});
-      const project = { name: current, tilemap: window.PP.tilemap, collisions: window.PP.collisions || [], markers: window.PP.markers || [], entities: merged.entities };
+      merged.collisions = window.PP.collisions || [];
+      merged.markup = window.PP.markup || [];
+      const project = { name: current, tilemap: window.PP.tilemap, collisions: window.PP.collisions || [], markers: window.PP.markers || [], markup: window.PP.markup || [], entities: merged.entities };
       let res, dir;
       if (engine === 'solarus') {
         res = await buildSolarusFiles(current, project);

@@ -93,6 +93,7 @@ LORA_PATH = _default_lora()
 
 PIPE = None
 IS_SDXL = False
+IMG2PIPE = None
 
 
 def _cuda_ok():
@@ -173,13 +174,16 @@ def hex2rgb(h):
 def load_pipeline():
     """Load either an SD1.5 or SDXL checkpoint (+ optional LoRA), based on the
     checkpoint filename / env hint. Auto-detects SDXL via 'xl'/'sdxl' in the path
-    or PP_SD_ARCH=sd15|sdxl."""
-    global PIPE, IS_SDXL
+    or PP_SD_ARCH=sd15|sdxl. Also creates an img2img variant for the same model."""
+    global PIPE, IS_SDXL, IMG2PIPE
     if PIPE is not None:
         return PIPE
     print("[sidecar] importing torch + diffusers ...", flush=True)
     import torch
-    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
+    from diffusers import (
+        StableDiffusionPipeline, StableDiffusionXLPipeline,
+        StableDiffusionImg2ImgPipeline, StableDiffusionXLImg2ImgPipeline,
+    )
     print("[sidecar] torch + diffusers imported OK", flush=True)
     arch = os.environ.get("PP_SD_ARCH", "").lower()
     if not arch:
@@ -198,7 +202,6 @@ def load_pipeline():
                 pipe.load_lora_weights(LORA_PATH, adapter_name="pixel")
                 pipe.set_adapters(["pixel"], adapter_weights=[float(os.environ.get("PP_LORA_SCALE", "0.8"))])
             else:
-                # SD1.5: load + fuse the LoRA so it bakes into the weights
                 pipe.load_lora_weights(LORA_PATH)
                 pipe.fuse_lora(lora_scale=float(os.environ.get("PP_LORA_SCALE", "0.8")))
             print(f"[sidecar] LoRA loaded: {LORA_PATH}", flush=True)
@@ -207,6 +210,23 @@ def load_pipeline():
     pipe = pipe.to(DEVICE)
     pipe.safety_checker = None
     PIPE = pipe
+    # Create img2img variant from the same loaded weights (shares VAE + UNet + text encoders)
+    try:
+        img2img_cls = StableDiffusionXLImg2ImgPipeline if IS_SDXL else StableDiffusionImg2ImgPipeline
+        IMG2PIPE = img2img_cls(
+            vae=pipe.vae,
+            text_encoder=pipe.text_encoder,
+            tokenizer=pipe.tokenizer,
+            unet=pipe.unet,
+            scheduler=pipe.scheduler,
+            safety_checker=None,
+            feature_extractor=None,
+            requires_safety_checker=False,
+        )
+        IMG2PIPE = IMG2PIPE.to(DEVICE)
+        print("[sidecar] img2img pipeline created.", flush=True)
+    except Exception as e:
+        print(f"[sidecar] img2img init failed (will fallback): {e}", flush=True)
     print("[sidecar] ready.", flush=True)
     return PIPE
 
@@ -348,6 +368,62 @@ def generate(req):
     return buf.getvalue()
 
 
+def generate_img2img(req):
+    """img2img: takes a base64-encoded source image + prompt + strength,
+    returns a PNG. Useful for iterating on existing sprites."""
+    from PIL import Image
+    import torch, base64
+    pipe = load_pipeline()
+    img_pipe = IMG2PIPE or pipe  # fallback to txt2img if img2img init failed
+    # Decode source image from data URL or raw base64
+    src_b64 = req.get("image", "")
+    if "," in src_b64:
+        src_b64 = src_b64.split(",", 1)[1]
+    src_img = Image.open(io.BytesIO(base64.b64decode(src_b64))).convert("RGB")
+    w, h = src_img.size
+    w = max(16, min(768, w))
+    h = max(16, min(768, h))
+    src_img = src_img.resize((w, h), resample=0)  # nearest-neighbor for pixel art
+    strength = max(0.05, min(0.95, float(req.get("strength", 0.4))))
+    seed = int(req.get("seed", 0)) if req.get("seed") is not None and req.get("seed") != "" else random.randint(0, 1 << 31)
+    preset = (req.get("model") or "2dpixel").lower()
+    palette = req.get("palette", "none")
+    sampler = req.get("sampler", "euler_a")
+    triggers = {
+        "allinone": "pixelsprite, pixel art, video game asset",
+        "2dpixel": "pixel, xiangsu, 2d game asset, sprite, clean pixel art",
+        "mpixel": "pixel, 2d game asset",
+        "pixelxl": "",
+    }
+    trig = triggers.get(preset, "")
+    prompt = req.get("prompt", "pixel art").strip()
+    if trig:
+        prompt = f"{prompt}, {trig}"
+    prompt += ", flat colors, hard edges, solid background, no gradient"
+    neg = req.get("negative_prompt") or (
+        "blurry, smooth gradient, noise, photorealistic, 3d render, "
+        "anti-aliased, jpeg artifacts, lowres, watermark, text, fuzzy, "
+        "painting, sketch")
+    gen = torch.Generator(device=DEVICE).manual_seed(seed)
+    scheduler = build_scheduler(sampler)
+    img_pipe.scheduler = scheduler
+    out = img_pipe(
+        prompt=prompt,
+        image=src_img,
+        strength=strength,
+        num_inference_steps=int(req.get("steps", 20)),
+        guidance_scale=float(req.get("cfg", 7.0)),
+        generator=gen,
+        negative_prompt=neg,
+    )
+    img = out.images[0].convert("RGBA")
+    if palette and palette not in ("none", "raw"):
+        img = posterize(img, palette)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 class Handler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -379,6 +455,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"{}")
 
     def do_POST(self):
+        if self.path.startswith("/img2img"):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length)
+                req = json.loads(raw or b"{}")
+                png = generate_img2img(req)
+                self._send(200, png, "image/png")
+            except Exception as e:
+                self._send(500, json.dumps({"error": str(e)}).encode())
+            return
         if not self.path.startswith("/generate"):
             self._send(404, b"{}")
             return

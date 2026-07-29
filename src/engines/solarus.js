@@ -43,7 +43,7 @@ function entityBlock(type, id, X, Y, enemyKey, safe) {
 
 // Returns { files: [{name, data: Uint8Array}], count, safe }.
 export async function buildSolarusFiles(name, project) {
-  const { tilemap, markers, entities } = project;
+  const { tilemap, markers, entities, collisions, markup } = project;
   if (!tilemap || !tilemap.grid || !tilemap.grid.length) return { files: [], count: 0 };
   const safe = (name || 'level').replace(/[^a-z0-9_]/gi, '').toLowerCase() || 'level';
   const tileSize = tilemap.tileSize || 16;
@@ -101,6 +101,28 @@ export async function buildSolarusFiles(name, project) {
     const key = `enemy_e${ei}`;
     if (isMob && e.sprite) spriteList.push({ key, sprite: e.sprite });
     map += entityBlock(e.type, `e${ei++}`, X, Y, key, safe);
+  });
+
+  // Collision shapes — map to Solarus custom entities with metadata
+  (collisions || []).forEach((sh, ci) => {
+    const pts = (sh.points || []).map(p => `${Math.round(p.x * cols * tileSize)},${Math.round(p.y * rows * tileSize)}`).join(' ');
+    const cx = sh.points ? sh.points.reduce((a, p) => a + p.x, 0) / sh.points.length : 0;
+    const cy = sh.points ? sh.points.reduce((a, p) => a + p.y, 0) / sh.points.length : 0;
+    const X = px(cx), Y = py(cy);
+    map += `[entity]\nid = c${ci}\ntype = custom\nx = ${X}\ny = ${Y}\nlayer = 0\nproperties = { collision_type = "${sh.type || 'solid'}", points = "${pts}" }\n\n`;
+  });
+
+  // Markup paths — map to Solarus custom entities with path metadata
+  let mkIdx = 0;
+  (markup || []).forEach((mk) => {
+    (mk.paths || []).forEach((path) => {
+      if (!path || path.length < 2) return;
+      const pathStr = path.map(p => `${Math.round(p.x * cols * tileSize)},${Math.round(p.y * rows * tileSize)}`).join(' ');
+      const first = path[0];
+      const X = px(first.x), Y = py(first.y);
+      map += `[entity]\nid = mk${mkIdx}\ntype = custom\nx = ${X}\ny = ${Y}\nlayer = 0\nproperties = { markup_type = "${mk.type || 'path'}", color = "${mk.color || '#10b981'}", path = "${pathStr}" }\n\n`;
+      mkIdx++;
+    });
   });
 
   // Enemy sprites (animation set + png) and behavior scripts.
