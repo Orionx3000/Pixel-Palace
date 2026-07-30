@@ -4,7 +4,7 @@ import { readDir, readFile, writeFile, mkdir } from '@tauri-apps/plugin-fs';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 
-export default function TileMakerDotPanel({ toast }) {
+export default function TileMakerPanel({ toast }) {
   const [activeTab, setActiveTab] = useState('tiles'); // tiles, objects, npcs
   const [activeTool, setActiveTool] = useState('brush'); // brush, random, chunk, note
   const [theme, setTheme] = useState('dark');
@@ -656,14 +656,14 @@ export default function TileMakerDotPanel({ toast }) {
   useEffect(() => { drawGrid(); }, [gridData, zoom, theme, gridSize, assets, notes, isoMode, tileSize, uiTick, selectedCell]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: theme === 'dark' ? '#1e1e1e' : '#f5f5f5', color: theme === 'dark' ? '#fff' : '#000' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: theme === 'dark' ? '#1a1a2e' : '#f5f5f5', color: theme === 'dark' ? '#fff' : '#000' }}>
       
       {/* TOP TOOLBAR */}
-      <div style={{ display: 'flex', padding: '10px 20px', background: theme === 'dark' ? '#2d2d2d' : '#e0e0e0', borderBottom: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', gap: '15px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', padding: '10px 20px', background: theme === 'dark' ? '#16213e' : '#e0e0e0', borderBottom: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', gap: '15px', alignItems: 'center' }}>
          <h3 style={{ margin: 0, fontWeight: 800, letterSpacing: 1 }}>TileMaker DOT</h3>
          
          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', background: theme === 'dark' ? '#111' : '#ddd', padding: 4, borderRadius: 6 }}>
-           <button onClick={() => setActiveTool('brush')} style={{ background: activeTool === 'brush' ? '#22c55e' : 'transparent', color: activeTool === 'brush' ? '#000' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>o Brush</button>
+           <button onClick={() => setActiveTool('brush')} style={{ background: activeTool === 'brush' ? '#06b6d4' : 'transparent', color: activeTool === 'brush' ? '#000' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>o Brush</button>
            <button onClick={() => setActiveTool('random')} style={{ background: activeTool === 'random' ? '#3b82f6' : 'transparent', color: activeTool === 'random' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>Y2 Random Scatter</button>
            <button onClick={() => setActiveTool('chunk')} style={{ background: activeTool === 'chunk' ? '#a855f7' : 'transparent', color: activeTool === 'chunk' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>Y Chunk Tool</button>
            <button onClick={() => { setActiveTool('select'); setSelectedCell(null); }} style={{ background: activeTool === 'select' ? '#3b82f6' : 'transparent', color: activeTool === 'select' ? '#fff' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }} title="Select placed tile to edit scale/flip/rotate">▢ Select</button>
@@ -710,7 +710,7 @@ export default function TileMakerDotPanel({ toast }) {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
         {/* LEFT SIDEBAR - ASSETS */}
-        <div style={{ width: '320px', display: 'flex', flexDirection: 'column', borderRight: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', background: theme === 'dark' ? '#252525' : '#e8e8e8' }} onDrop={handleDrop} onDragOver={handleDragOver}>
+        <div style={{ width: '320px', display: 'flex', flexDirection: 'column', borderRight: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', background: theme === 'dark' ? '#1e2a3a' : '#e8e8e8' }} onDrop={handleDrop} onDragOver={handleDragOver}>
            <div style={{ display: 'flex', borderBottom: theme === 'dark' ? '1px solid #444' : '1px solid #ccc' }}>
               <button onClick={() => setActiveTab('tiles')} style={{ flex: 1, padding: '12px 10px', background: activeTab === 'tiles' ? (theme === 'dark' ? '#333' : '#fff') : 'transparent', color: theme === 'dark' ? '#fff' : '#000', border: 'none', cursor: 'pointer', fontWeight: activeTab === 'tiles' ? 'bold' : 'normal' }}>Tiles</button>
               <button onClick={() => setActiveTab('objects')} style={{ flex: 1, padding: '12px 10px', background: activeTab === 'objects' ? (theme === 'dark' ? '#333' : '#fff') : 'transparent', color: theme === 'dark' ? '#fff' : '#000', border: 'none', cursor: 'pointer', fontWeight: activeTab === 'objects' ? 'bold' : 'normal' }}>Objects</button>
@@ -754,8 +754,8 @@ export default function TileMakerDotPanel({ toast }) {
                     } else {
                        setSelectedIds([item.id]);
                     }
-                 }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: selectedIds.includes(item.id) ? '#22c55e' : (theme === 'dark' ? '#333' : '#fff'), color: selectedIds.includes(item.id) ? '#000' : (theme === 'dark' ? '#fff' : '#000'), borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)', flexShrink: 0 }}>
-                    <div style={{ width: 48, height: 48, minWidth: 48, minHeight: 48, background: '#111', border: selectedIds.includes(item.id) ? '2px solid #16a34a' : '1px solid #555', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 4 }}>
+                 }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: selectedIds.includes(item.id) ? '#06b6d4' : (theme === 'dark' ? '#1e2a3a' : '#fff'), color: selectedIds.includes(item.id) ? '#000' : (theme === 'dark' ? '#fff' : '#000'), borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)', flexShrink: 0 }}>
+                    <div style={{ width: 48, height: 48, minWidth: 48, minHeight: 48, background: '#111', border: selectedIds.includes(item.id) ? '2px solid #06b6d4' : '1px solid #555', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 4 }}>
                        <img src={item.src} style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }} />
                     </div>
                     <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
@@ -773,10 +773,10 @@ export default function TileMakerDotPanel({ toast }) {
         </div>
         
         {/* MAIN CANVAS */}
-        <div style={{ flex: 1, background: theme === 'dark' ? '#111' : '#ccc', position: 'relative', overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        <div style={{ flex: 1, background: theme === 'dark' ? '#0a0a1a' : '#ccc', position: 'relative', overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
              onWheel={e => { e.preventDefault(); setZoom(z => Math.max(0.25, Math.min(8, z * (e.deltaY < 0 ? 1.15 : 1/1.15)))); }}
         >
-           <canvas ref={canvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}  style={{ background: theme === 'dark' ? '#222' : '#fff', boxShadow: '0 0 30px rgba(0,0,0,0.5)', imageRendering: 'pixelated' }}></canvas>
+           <canvas ref={canvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}  style={{ background: theme === 'dark' ? '#16162a' : '#fff', boxShadow: '0 0 30px rgba(0,0,0,0.5)', imageRendering: 'pixelated' }}></canvas>
 
            <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(0,0,0,0.7)', borderRadius: 8, padding: '4px 8px', zIndex: 15 }}>
               <button onClick={() => setZoom(z => Math.max(0.25, z / 1.25))} style={{ background: '#444', color: '#fff', border: 'none', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>−</button>

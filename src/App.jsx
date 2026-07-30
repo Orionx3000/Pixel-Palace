@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import TileMakerDotPanel from './components/TileMakerDotPanel';
+import TileMakerPanel from './components/TileMakerPanel';
 import GamePanel from './components/GamePanel';
 import { invoke } from '@tauri-apps/api/core';
 import { save as tauriSave, open as tauriOpen } from '@tauri-apps/plugin-dialog';
@@ -1275,7 +1275,7 @@ function App(){
                 onLoad={() => { broadcastDoc(); if(pendingEditorStateRef.current){ applyEditorState(pendingEditorStateRef.current); pendingEditorStateRef.current=null; } }}
              />
           ))}
-          <div key={'tilemap_'+contentKey} style={{ display: active === 'tilemap' ? 'block' : 'none', width: '100%', height: '100%' }}><TileMakerDotPanel toast={toast}/></div>
+          <div key={'tilemap_'+contentKey} style={{ display: active === 'tilemap' ? 'block' : 'none', width: '100%', height: '100%' }}><TileMakerPanel toast={toast}/></div>
           <div key={'hub_'+contentKey} style={{ display: active === 'hub' ? 'block' : 'none', width: '100%', height: '100%' }}><HubPanel toast={toast} setActive={setActive} projects={projects} fmtTime={fmtTime} onOpenProject={openProject} onDeleteProject={deleteProject} onSaveProject={()=>saveProject()} projName={projName} setProjName={setProjName}/></div>
 <div key={'collision_'+contentKey} style={{ display: active === 'collision' ? 'block' : 'none', width: '100%', height: '100%' }}><CollisionPanel toast={toast}/></div>
 <div key={'markup_'+contentKey} style={{ display: active === 'markup' ? 'block' : 'none', width: '100%', height: '100%' }}><MarkupPanel toast={toast}/></div>
