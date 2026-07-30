@@ -90,6 +90,8 @@ def _default_lora():
 
 CHECKPOINT = _default_ckpt()
 LORA_PATH = _default_lora()
+# Fail early: check if checkpoint exists so we can serve a helpful /health
+CKPT_EXISTS = CHECKPOINT and os.path.exists(CHECKPOINT)
 
 PIPE = None
 IS_SDXL = False
@@ -448,8 +450,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({
                 "ok": True,
                 "ready": ready,
-                "model": os.path.basename(CHECKPOINT),
+                "model_loaded": ready,
+                "ckpt_exists": CKPT_EXISTS,
+                "model": os.path.basename(CHECKPOINT) if CHECKPOINT else None,
                 "lora": os.path.basename(LORA_PATH) if LORA_PATH else None,
+                "message": "ready" if ready else ("checkpoint not found (place model at %s)" % CHECKPOINT if not CKPT_EXISTS else "loading..."),
             }).encode())
             return
         self._send(404, b"{}")

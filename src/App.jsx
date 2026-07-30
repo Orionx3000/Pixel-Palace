@@ -63,7 +63,7 @@ import './index.css';
 // ── shared project bus (survives tab switches) ──
 window.PP = window.PP || {
   inbox:{}, assets:[], collisions:[], markers:[], markup:[], graph:[], tilemap:null, workingCanvas:{},
-  options:{ tileSize:16, gridW:40, gridH:30, accent:'#10b981', showGrid:true, exportFmt:'json', cursorStyle:'cross', noDoubles:false }
+  options:{ tileSize:16, gridW:40, gridH:30, accent:'#10b981', showGrid:true, exportFmt:'json', cursorStyle:'cross', noDoubles:false, aiEnabled:true }
 };
 const PP = window.PP;
 // Event bus so receiving tabs react to Sends automatically (real inter-tab threading).
@@ -669,6 +669,10 @@ function OptionsPanel({toast,doc,onDoc}){
         <button className={"neon-btn "+(o.noDoubles?'on':'')} onClick={()=>apply({noDoubles:!o.noDoubles})}>{o.noDoubles?'No Doubles: On':'No Doubles: Off'}</button>
         <span style={{color:'var(--dim)',fontSize:11,marginLeft:8}}>Skip drawing pixels that already match the active color</span>
       </div>
+      <div className="row">
+        <button className={"neon-btn "+(o.aiEnabled===false?'':'on')} onClick={()=>apply({aiEnabled:!o.aiEnabled})}>{o.aiEnabled===false?'AI: Off':'AI: On'}</button>
+        <span style={{color:'var(--dim)',fontSize:11,marginLeft:8}}>Disable to skip the AI sidecar entirely (no model needed for download installs)</span>
+      </div>
       <div className="seg">
         <button className="neon-btn cy" onClick={save}>Save Settings → Folder</button>
         <button className="neon-btn" onClick={load}>Load Settings</button>
@@ -1146,6 +1150,7 @@ function App(){
            toast('Saved to Art Hub: ' + (d.name || 'Export'));
         }
         if(d.type==='GENERATE_AI'){
+          if(!PP.options.aiEnabled){ toast('AI disabled (enable in Options)'); return; }
           // Generalized AI: route the request straight to the local sidecar over
           // HTTP. Works from Editor, Studio, Map Gen, etc. (Any tool can post this.)
           (async ()=>{
@@ -1177,6 +1182,7 @@ function App(){
           })();
         }
         if(d.type==='GENERATE_AI_IMG2IMG'){
+          if(!PP.options.aiEnabled){ toast('AI disabled (enable in Options)'); return; }
           (async ()=>{
             try{
               const AI_PORT = (window.PP_AI_PORT || 18755);
