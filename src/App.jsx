@@ -784,7 +784,7 @@ const HELP = {
     note:`These are photo utilities — they need an uploaded image before anything visible happens.`
   },
   tilemap:{
-    heading:'TileMap (TileMaker DOT)',
+    heading:'TileMap',
     blurb:`Full tilemap painter with three asset layers (tiles, objects, NPCs), brush/random scatter/chunk tools, isometric mode, and Tiled integration.`,
     steps:[
       `Scan an assets folder (F4) to load your tile PNGs into the palette, or drag-and-drop images onto the sidebar.`,

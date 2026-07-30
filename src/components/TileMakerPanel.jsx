@@ -660,7 +660,7 @@ export default function TileMakerPanel({ toast }) {
       
       {/* TOP TOOLBAR */}
       <div style={{ display: 'flex', padding: '10px 20px', background: theme === 'dark' ? '#16213e' : '#e0e0e0', borderBottom: theme === 'dark' ? '1px solid #444' : '1px solid #ccc', gap: '15px', alignItems: 'center' }}>
-         <h3 style={{ margin: 0, fontWeight: 800, letterSpacing: 1 }}>TileMaker DOT</h3>
+         <h3 style={{ margin: 0, fontWeight: 800, letterSpacing: 1 }}>TileMaker</h3>
          
          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', background: theme === 'dark' ? '#111' : '#ddd', padding: 4, borderRadius: 6 }}>
            <button onClick={() => setActiveTool('brush')} style={{ background: activeTool === 'brush' ? '#06b6d4' : 'transparent', color: activeTool === 'brush' ? '#000' : (theme === 'dark' ? '#fff' : '#000'), border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>o Brush</button>
