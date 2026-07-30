@@ -102,6 +102,14 @@
         <option value="gold">Gold</option>
         <option value="ice">Ice</option>
         <option value="poison">Poison</option>
+        <option value="sweetie16">Sweetie 16</option>
+        <option value="db32">DB32 (DawnBringer)</option>
+        <option value="c64">C64</option>
+        <option value="nes">NES</option>
+        <option value="msx">MSX</option>
+        <option value="aap64">AAP-64</option>
+        <option value="fantasia">Fantasia</option>
+        <option value="dawn">Dawn</option>
       </select>
     </div>
 
@@ -280,6 +288,14 @@ const PRESETS = {
   gold:    ['#3a2e0d','#a07b14','#ffd23f','#fff3b0','#5a4500','#ffb347','#7a5e10','#fff7d0'],
   ice:     ['#0d243a','#14618a','#46c8ff','#d6f4ff','#06203a','#9adcff','#2a7ac8','#eafaff'],
   poison:  ['#2a0d3a','#6a1a8a','#c44aff','#f0c0ff','#1a062a','#e07aff','#5a2a8a','#fae0ff'],
+  sweetie16:['#1a1c2c','#5d275d','#b13e53','#ef7d57','#ffcd75','#a7f070','#38b764','#257179','#29366f','#3b5dc9','#41a6f6','#73eff7','#f4f4f4','#94b0c2','#566c86','#333c57'],
+  db32:    ['#000000','#222034','#45283c','#663931','#8f563b','#df7126','#d9a066','#eec39a','#fbf236','#99e550','#6abe30','#37946e','#4b692f','#524b24','#323c39','#3f3f3f','#606060','#7f7f7f','#9e9e9e','#bebebe','#dddddd','#fcfcfc','#004d79','#008cf0','#00e5ff','#00d2a0','#7acb5c','#b6d53c','#d6e46c','#fbf236','#f4a460','#d4845a'],
+  c64:     ['#000000','#ffffff','#880000','#aa8800','#008800','#448844','#000088','#4444aa','#884488','#aacc44','#88cc88','#aaff88','#44ccdd','#88cccc','#aaaacc','#ccaacc'],
+  nes:     ['#000000','#282828','#505050','#787878','#a0a0a0','#c8c8c8','#f0f0f0','#f87058','#f8a028','#e0e040','#58a858','#00a8f0','#4060f8','#8858f8','#f858a0','#b81800'],
+  msx:     ['#000000','#6ab4d6','#48a0c8','#4088c0','#3068a8','#20488a','#1e2c7a','#1a1860','#68c8c8','#60c0a0','#54b050','#489830','#308028','#206820','#105010','#083808'],
+  aap64:   ['#000000','#1a1c2c','#1d2b53','#2d2d2d','#3c3c3c','#4a4a4a','#5d275d','#5c5c5c','#6b6b6b','#7e2553','#7a7a7a','#8b8b8b','#9b9b9b','#ab5236','#ababab','#b13e53','#bababa','#c2c3c7','#c4c4c4','#d2d2d2','#e0e0e0','#ef7d57','#efefef','#f6f6f6','#ff004d','#ffa300','#ffcd75','#ffec27','#ffffff'],
+  fantasia:['#0a0a1a','#1a1040','#2a1a60','#3a2580','#4a30aa','#5a3bd4','#7a5aff','#9a7aff','#1a0a30','#3a1050','#5a1a70','#7a2590','#0a2a1a','#1a4a3a','#2a6a5a','#3a8a7a'],
+  dawn:    ['#1a1410','#2a2218','#3a3020','#4a3e28','#5a4c30','#6a5a38','#7a6840','#8a7648','#9a8450','#5c4a2a','#8a6a3a','#ba8a4a','#e8aa5a','#f0ca8a','#f8e8ba','#fffaf0'],
 };
 
 let S = {
@@ -601,7 +617,7 @@ function generate(){
   sctx.clearRect(0,0,sheet.width,S.size); frames.forEach((g,i)=>drawGrid(g,sctx,S.size,i*S.size,0));
   $('frameInfo').textContent='frame 1/'+S.frames;
   $('sheetInfo').textContent=sheet.width+'×'+S.size+'  ('+S.frames+' frames @ '+S.size+'px, '+S.anim+')  seed '+S.seed;
-  lastSheet=sheet.toDataURL('image/png'); lastJson=meta();
+  lastSheet=null; lastJson=null; // lazy encode on export
   $('status').textContent='Generated '+S.gen+' / '+S.anim+' / seed '+S.seed+'. Examine, tweak, then send or export.';
 }
 function showFrame(i){ curFrame=(i+S.frames)%S.frames; fctx.clearRect(0,0,S.size,S.size); drawGrid(lastFrames[curFrame],fctx,S.size,0,0); $('frameInfo').textContent='frame '+(curFrame+1)+'/'+S.frames; }
@@ -648,6 +664,8 @@ async function generateAI(){
       lastSheet=sheet.toDataURL('image/png');
       // stash the raw PNG for Send/export
       lastFrames=[]; curFrame=0;
+      // Cache new sheet and invalidate lazy cache
+      lastSheet=null; lastJson=null;
       $('status').textContent='AI sprite generated ('+n+'×'+n+'px native). Use frames/anim on the sheet, or just Send it.';
     };
     im.src=url;
@@ -658,13 +676,15 @@ async function generateAI(){
 }
 
 // ---- UI wiring ----
-function wireSeg(id,key,parse){ document.querySelectorAll('#'+id+' .btn').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#'+id+' .btn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); S[key]=parse?parse(b.dataset[Object.keys(b.dataset)[0]]):b.dataset[Object.keys(b.dataset)[0]]; if(key==='size'||key==='frames') updateDims(); generate(); }); }
+let genTimer=null;
+function debounceGen(t){ clearTimeout(genTimer); genTimer=setTimeout(generate,t||80); }
+function wireSeg(id,key,parse){ document.querySelectorAll('#'+id+' .btn').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#'+id+' .btn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); S[key]=parse?parse(b.dataset[Object.keys(b.dataset)[0]]):b.dataset[Object.keys(b.dataset)[0]]; if(key==='size'||key==='frames') updateDims(); debounceGen(10); }); }
 wireSeg('genSeg','gen'); wireSeg('symSeg','sym'); wireSeg('sizeSeg','size',v=>+v); wireSeg('frameSeg','frames',v=>+v); wireSeg('animSeg','anim');
-$('seed').oninput=()=>{ S.seed=+$('seed').value; $('seedVal').textContent=S.seed; };
+$('seed').oninput=()=>{ S.seed=+$('seed').value; $('seedVal').textContent=S.seed; debounceGen(); };
 $('seed').value=S.seed; $('seedVal').textContent=S.seed;
-$('det').oninput=()=>{ S.det=+$('det').value; $('detVal').textContent=S.det; };
-$('parts').oninput=()=>{ S.parts=+$('parts').value; $('partsVal').textContent=S.parts; };
-$('shade').oninput=()=>{ S.shade=+$('shade').value; $('shadeVal').textContent=S.shade; };
+$('det').oninput=()=>{ S.det=+$('det').value; $('detVal').textContent=S.det; debounceGen(); };
+$('parts').oninput=()=>{ S.parts=+$('parts').value; $('partsVal').textContent=S.parts; debounceGen(); };
+$('shade').oninput=()=>{ S.shade=+$('shade').value; $('shadeVal').textContent=S.shade; debounceGen(); };
 $('rnd').onclick=()=>{ S.seed=Math.floor(Math.random()*1e6); $('seed').value=S.seed; $('seedVal').textContent=S.seed; generate(); };
 $('palPreset').onchange=()=>{ S.preset=$('palPreset').value; S.pal=PRESETS[S.preset].slice(); S.skinTone=false; renderPal(); generate(); };
 $('randPal').onclick=()=>{ const keys=Object.keys(PRESETS); S.preset=keys[Math.floor(Math.random()*keys.length)]; $('palPreset').value=S.preset; S.pal=PRESETS[S.preset].slice(); S.skinTone=false; renderPal(); generate(); };
@@ -678,7 +698,7 @@ $('con').oninput=()=>{ S.con=+$('con').value; $('conVal').textContent=S.con; };
 $('shp').oninput=()=>{ S.shp=+$('shp').value; $('shpVal').textContent=S.shp; };
 $('den').oninput=()=>{ S.den=+$('den').value; $('denVal').textContent=S.den; };
 $('aiSteps').oninput=()=>{ $('aiStepsVal').textContent=$('aiSteps').value; };
-$('swEdit').oninput=()=>{ S.pal[activeSw]=$('swEdit').value; renderPal(); generate(); };
+$('swEdit').oninput=()=>{ S.pal[activeSw]=$('swEdit').value; renderPal(); debounceGen(); };
 $('gen').onclick=generate;
 $('regen').onclick=()=>{ S.seed=(S.seed*1103515245+12345)>>>0; $('seed').value=S.seed; $('seedVal').textContent=S.seed; generate(); };
 $('genAI').onclick=generateAI;
@@ -691,15 +711,17 @@ function renderPal(){
   $('swEdit').value=S.pal[activeSw];
   document.querySelectorAll('#pal .sw').forEach(el=>el.onclick=()=>{ activeSw=+el.dataset.i; renderPal(); });
 }
+function getSheetDataURL(){ if(!lastSheet) lastSheet=sheet.toDataURL('image/png'); return lastSheet; }
+function getMeta(){ if(!lastJson) lastJson=meta(); return lastJson; }
 function dl(name,text,mime){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:mime||'application/json'})); a.download=name; a.click(); }
-$('dlPng').onclick=()=>{ if(!lastSheet)return; const a=document.createElement('a'); a.href=lastSheet; a.download='pixscii_'+S.gen+'_'+S.seed+'.png'; a.click(); };
-$('dlJson').onclick=()=>{ if(!lastJson)return; dl('pixscii_'+S.gen+'_'+S.seed+'.json', JSON.stringify(lastJson,null,2)); };
-$('dlGodot').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.seed+'.tres', godotTres(), 'text/plain'); };
-$('dlSolarus').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.seed+'.dat', solarusDat(), 'text/plain'); };
-$('dlStarbound').onclick=()=>{ if(!lastSheet)return; dl('pixscii_'+S.gen+'_'+S.seed+'.json', starboundJson(), 'application/json'); };
-$('sendEditor').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{editor:lastSheet}},'*'); $('status').textContent='Sent sheet to Editor.'; };
-$('sendStudio').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{studio:lastSheet}},'*'); $('status').textContent='Sent sheet to Studio.'; };
-$('sendAnimator').onclick=()=>{ if(!lastSheet)return; parent.postMessage({type:'LOAD_CANVAS',data:{animator:lastSheet}},'*'); $('status').textContent='Sent sheet to Animator.'; };
+$('dlPng').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; const a=document.createElement('a'); a.href=u; a.download='pixscii_'+S.gen+'_'+S.seed+'.png'; a.click(); };
+$('dlJson').onclick=()=>{ const m=getMeta(); if(!m)return; dl('pixscii_'+S.gen+'_'+S.seed+'.json', JSON.stringify(m,null,2)); };
+$('dlGodot').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; dl('pixscii_'+S.gen+'_'+S.seed+'.tres', godotTres(), 'text/plain'); };
+$('dlSolarus').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; dl('pixscii_'+S.gen+'_'+S.seed+'.dat', solarusDat(), 'text/plain'); };
+$('dlStarbound').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; dl('pixscii_'+S.gen+'_'+S.seed+'.json', starboundJson(), 'application/json'); };
+$('sendEditor').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; parent.postMessage({type:'LOAD_CANVAS',data:{editor:u}},'*'); $('status').textContent='Sent sheet to Editor.'; };
+$('sendStudio').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; parent.postMessage({type:'LOAD_CANVAS',data:{studio:u}},'*'); $('status').textContent='Sent sheet to Studio.'; };
+$('sendAnimator').onclick=()=>{ const u=getSheetDataURL(); if(!u)return; parent.postMessage({type:'LOAD_CANVAS',data:{animator:u}},'*'); $('status').textContent='Sent sheet to Animator.'; };
 $('importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{
   const im=new Image(); im.onload=()=>{
     importedImage=im;
