@@ -10,11 +10,14 @@ It is launched by the Tauri app as a sidecar. The port is passed as argv[1]
 window.PP_AI.generate -> http://127.0.0.1:<port>/generate.
 
 Design notes (the "tuned for pixel art" part):
-  * We generate at a LOW native resolution (height/width capped ~128) so the
-    model produces blocky, readable pixel art instead of mushy high-res.
-  * We then NEAREST-NEIGHBOR upscale to the requested size (no blur).
+  * We generate at a moderate native resolution (256-512) so the diffusion model
+    has enough pixel budget to form coherent subjects instead of noise.
+  * We then NEAREST-NEIGHBOR downscale to the target pixel-art size (e.g. 64x64)
+    so the result reads as deliberate blocky pixel art, not low-res mush.
   * Optional palette posterize snaps colors to a small fixed ramp so the result
     drops straight into the Editor / Studio / engine pipeline.
+  * Final nearest-neighbour upscale back to a display-friendly size if the
+    target is tiny (e.g. 16-32 px) so you can actually see it.
 
 Models (user-provided, NOT bundled):
   * SD1.5 pixel checkpoint, e.g. allInOnePixelModel_v1.ckpt / PixNite 1.5 /
@@ -80,12 +83,20 @@ def _default_lora():
     cand = [
         os.environ.get("PP_SD_LORA", ""),
         r"D:\pixel sprites.safetensors",   # 2D Pixel Toolkit SD1.5 LoRA (trigger: pixel, xiangsu)
-        r"D:\pixel_f2.safetensors",        # alternate pixel LoRA
+        r"D:\pixel_f2.safetensors",        # 2D Pixel Toolkit v2 SD1.5 LoRA (trigger: pixel, xiangsu)
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "pixel sprites.safetensors"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "pixel_f2.safetensors"),
     ]
     for c in cand:
         if c and os.path.exists(c):
             return c
+    return ""
+
+# Detect LoRA trigger words from filename so they're auto-appended.
+def _lora_triggers(path):
+    name = os.path.basename(path or "").lower()
+    if "sprite" in name or "pixel" in name:
+        return "pixel, xiangsu"
     return ""
 
 CHECKPOINT = _default_ckpt()
@@ -278,10 +289,31 @@ def build_scheduler(name):
         return diffusers.EulerAncestralDiscreteScheduler()
 
 
+def _native_res(w, h, mode):
+    """Return a generation resolution that gives the diffusion model enough
+    pixel budget for coherent forms. We want at least 256 on the short side,
+    and prefer 384-512 for scenes/maps."""
+    base = 256
+    if mode in ("scene", "map"):
+        base = 384
+    nw = max(w, base)
+    nh = max(h, base)
+    # Keep closest multiple of 64 (SD1.5 likes it) while staying at most 768.
+    nw = min(((nw + 31) // 64) * 64, 768)
+    nh = min(((nh + 31) // 64) * 64, 768)
+    return nw, nh
+
+
 def generate(req):
-    """Model-driven pixel-art generation. Returns PNG bytes at the requested
-    native resolution (no forced downscale, no symmetry, no procedural posing —
-    those are the front-end's job, not the model's).
+    """Model-driven pixel-art generation. Returns PNG bytes.
+
+    Strategy:
+      1. Generate at a native resolution >= 256 px so the model has enough
+         room to form coherent subjects.
+      2. NEAREST-neighbour downscale to the requested target size for that
+         crisp pixel-art look.
+      3. Optional palette posterize to snap colours.
+      4. Optional nearest-neighbour upscale back for display.
 
     req keys: prompt, negative_prompt, width, height, size(alias), seed,
               palette, model, sampler, steps, cfg, scale(lora), mode.
@@ -296,65 +328,81 @@ def generate(req):
     sampler = req.get("sampler", "euler_a")
     mode = (req.get("mode") or "sprite").lower()
 
-    # Independent W/H (default to a sane pixel-art native res, NOT capped tiny).
-    w = int(req.get("width") or req.get("size") or 64)
-    h = int(req.get("height") or req.get("size") or 64)
-    w = max(16, min(768, w))
-    h = max(16, min(768, h))
+    # Target output dimensions (what the user actually wants).
+    tw = int(req.get("width") or req.get("size") or 64)
+    th = int(req.get("height") or req.get("size") or 64)
+    tw = max(8, min(768, tw))
+    th = max(8, min(768, th))
 
-    # Trigger words baked in per model so the user never has to remember them.
-    # 2D Pixel Toolkit is the anchor for the whole toolset.
+    # Native generation resolution — big enough for coherent forms.
+    nw, nh = _native_res(tw, th, mode)
+
+    # ── Trigger words per model ──────────────────────────────────────
     triggers = {
-        "allinone": "pixelsprite, pixel art, video game asset",
-        "2dpixel": "pixel, xiangsu, 2d game asset, sprite, clean pixel art",
+        "allinone": "pixelsprite",       # PublicPrompts/All-In-One-Pixel-Model
+        "2dpixel": "pixel, xiangsu",     # 2D Pixel Toolkit LoRA trigger words
         "mpixel": "pixel, 2d game asset",
         "pixelxl": "",
     }
-    # Universal pixel-art negative prompt — keeps the model off Rorschach noise.
+    # Scene mode: use the scene trigger instead of sprite trigger.
+    if mode in ("scene", "map"):
+        triggers["allinone"] = "16bitscene"  # model's scene trigger word
+
+    # If a LoRA is loaded, auto-include its trigger words regardless of preset.
+    lora_trig = _lora_triggers(LORA_PATH)
+    if lora_trig:
+        for k in triggers:
+            if lora_trig not in triggers[k]:
+                triggers[k] = (triggers[k] + ", " + lora_trig).strip(", ")
+
+    # Universal pixel-art negative prompt.
     neg = req.get("negative_prompt") or (
-                  "blurry, smooth gradient, noise, photorealistic, 3d render, "
-                  "anti-aliased, jpeg artifacts, lowres, watermark, text, fuzzy, "
-                  "painting, sketch")
-    if mode == "scene" or mode == "map":
-        neg += ", single object, character portrait, plain background"
+        "blurry, smooth gradient, noise, photorealistic, 3d render, "
+        "anti-aliased, jpeg artifacts, lowres, watermark, text, fuzzy, "
+        "painting, sketch, oil painting, canvas texture")
+    if mode in ("scene", "map"):
+        neg += ", single object, character portrait, plain background, white background"
 
     trig = triggers.get(preset, "")
     prompt = base_prompt.strip()
     if trig:
-        prompt = f"{prompt}, {trig}"
-    # Pixel-art composition hints under the hood (not user-facing clutter).
+        prompt = f"{trig}, {prompt}"
+    # Composition hints (not user-facing).
     if mode in ("sprite", "sheet"):
-        prompt += ", flat colors, hard edges, solid background, no gradient"
+        prompt += ", flat colors, hard edges, solid background, no gradient, centered character, simple background"
     elif mode == "tileset":
-        prompt += ", seamless tile, tileable, flat colors, hard pixel edges"
+        prompt += ", seamless tile, tileable, flat colors, hard pixel edges, top-down"
     elif mode in ("scene", "map"):
-        prompt += ", top-down, flat shading, hard pixel edges, game background"
+        prompt += ", top-down, flat shading, hard pixel edges, game background, detailed environment"
 
     gen = torch.Generator(device=DEVICE).manual_seed(seed)
     scheduler = build_scheduler(sampler)
     pipe.scheduler = scheduler
     common = dict(
-        width=w, height=h,
-        num_inference_steps=int(req.get("steps", 28)),
+        width=nw, height=nh,
+        num_inference_steps=int(req.get("steps", 30)),
         guidance_scale=float(req.get("cfg", 7.5)),
         generator=gen, negative_prompt=neg,
     )
-    # Sheet mode: the 2D Pixel Toolkit's signature output — an animation-ready
-    # sprite sheet. We generate `frames` individual sprites (each at frame_size)
-    # and tile them horizontally into one sheet, so a frame slot is meaningful.
+
+    # ── Sheet mode: generate individual frames at native res, downscale ──
     if mode == "sheet":
         frames = max(1, int(req.get("frames", 4)))
-        fw = int(req.get("frame_size", w))
-        fh = int(req.get("frame_size", h))
-        fw = max(16, min(768, fw)); fh = max(16, min(768, fh))
+        fw = int(req.get("frame_size", tw))
+        fh = int(req.get("frame_size", th))
+        fw = max(8, min(768, fw)); fh = max(8, min(768, fh))
+        fnw, fnh = _native_res(fw, fh, mode)
         sheet = Image.new("RGBA", (fw * frames, fh))
         for f in range(frames):
             fseed = seed + f * 1013
             fgen = torch.Generator(device=DEVICE).manual_seed(fseed)
             fcommon = dict(common); fcommon["generator"] = fgen
-            fcommon["width"], fcommon["height"] = fw, fh
+            fcommon["width"], fcommon["height"] = fnw, fnh
             fout = pipe(prompt=prompt, **fcommon)
             fimg = fout.images[0].convert("RGBA")
+            # Downscale to target frame size.
+            if fimg.size != (fw, fh):
+                fimg = fimg.resize((fw, fh), resample=0)
             if palette and palette not in ("none", "raw"):
                 fimg = posterize(fimg, palette)
             sheet.paste(fimg, (f * fw, 0))
@@ -362,7 +410,10 @@ def generate(req):
 
     out = pipe(prompt=prompt, **common)
     img = out.images[0].convert("RGBA")
-    # Optional palette snap. "none"/"raw" = leave the model's own colours.
+    # Downscale from native to target size.
+    if img.size != (tw, th):
+        img = img.resize((tw, th), resample=0)
+    # Optional palette snap.
     if palette and palette not in ("none", "raw"):
         img = posterize(img, palette)
     buf = io.BytesIO()
@@ -372,53 +423,62 @@ def generate(req):
 
 def generate_img2img(req):
     """img2img: takes a base64-encoded source image + prompt + strength,
-    returns a PNG. Useful for iterating on existing sprites."""
+    returns a PNG. Generates at native res then downscales."""
     from PIL import Image
     import torch, base64
     pipe = load_pipeline()
-    img_pipe = IMG2PIPE or pipe  # fallback to txt2img if img2img init failed
-    # Decode source image from data URL or raw base64
+    img_pipe = IMG2PIPE or pipe
     src_b64 = req.get("image", "")
     if "," in src_b64:
         src_b64 = src_b64.split(",", 1)[1]
     src_img = Image.open(io.BytesIO(base64.b64decode(src_b64))).convert("RGB")
-    w, h = src_img.size
-    w = max(16, min(768, w))
-    h = max(16, min(768, h))
-    src_img = src_img.resize((w, h), resample=0)  # nearest-neighbor for pixel art
+    tw, th = src_img.size
+    tw = max(8, min(768, tw))
+    th = max(8, min(768, th))
+    # Upscale source to native res for img2img so the model has detail to work with.
+    nw, nh = _native_res(tw, th, "sprite")
+    src_native = src_img.resize((nw, nh), resample=0)
     strength = max(0.05, min(0.95, float(req.get("strength", 0.4))))
     seed = int(req.get("seed", 0)) if req.get("seed") is not None and req.get("seed") != "" else random.randint(0, 1 << 31)
     preset = (req.get("model") or "2dpixel").lower()
     palette = req.get("palette", "none")
     sampler = req.get("sampler", "euler_a")
     triggers = {
-        "allinone": "pixelsprite, pixel art, video game asset",
-        "2dpixel": "pixel, xiangsu, 2d game asset, sprite, clean pixel art",
+        "allinone": "pixelsprite",
+        "2dpixel": "pixel, xiangsu",
         "mpixel": "pixel, 2d game asset",
         "pixelxl": "",
     }
+    lora_trig = _lora_triggers(LORA_PATH)
+    if lora_trig:
+        for k in triggers:
+            if lora_trig not in triggers[k]:
+                triggers[k] = (triggers[k] + ", " + lora_trig).strip(", ")
     trig = triggers.get(preset, "")
     prompt = req.get("prompt", "pixel art").strip()
     if trig:
-        prompt = f"{prompt}, {trig}"
-    prompt += ", flat colors, hard edges, solid background, no gradient"
+        prompt = f"{trig}, {prompt}"
+    prompt += ", flat colors, hard edges, solid background, no gradient, simple background"
     neg = req.get("negative_prompt") or (
         "blurry, smooth gradient, noise, photorealistic, 3d render, "
         "anti-aliased, jpeg artifacts, lowres, watermark, text, fuzzy, "
-        "painting, sketch")
+        "painting, sketch, oil painting")
     gen = torch.Generator(device=DEVICE).manual_seed(seed)
     scheduler = build_scheduler(sampler)
     img_pipe.scheduler = scheduler
     out = img_pipe(
         prompt=prompt,
-        image=src_img,
+        image=src_native,
         strength=strength,
-        num_inference_steps=int(req.get("steps", 20)),
-        guidance_scale=float(req.get("cfg", 7.0)),
+        num_inference_steps=int(req.get("steps", 25)),
+        guidance_scale=float(req.get("cfg", 7.5)),
         generator=gen,
         negative_prompt=neg,
     )
     img = out.images[0].convert("RGBA")
+    # Downscale back to target size.
+    if img.size != (tw, th):
+        img = img.resize((tw, th), resample=0)
     if palette and palette not in ("none", "raw"):
         img = posterize(img, palette)
     buf = io.BytesIO()
@@ -495,7 +555,7 @@ if __name__ == "__main__":
             png = generate({
                 "prompt": "cute slime monster, side view, full body",
                 "size": 64, "seed": 7, "palette": "pico8",
-                "model": "2dpixel", "steps": 16, "cfg": 7.5,
+                "model": "2dpixel", "steps": 20, "cfg": 7.5,
             })
             open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "out.png"), "wb").write(png)
             print(f"[sidecar] SELFTEST OK bytes={len(png)}", flush=True)
